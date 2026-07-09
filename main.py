@@ -49,38 +49,31 @@ if uploaded_files:
             rgb = img_array[:, :, :3]
             alpha = img_array[:, :, 3]
             
-            # 클릭한 지점의 정확한 색상 가져오기
-            c_r, c_g, c_b = int(rgb[y, x, 0]), int(rgb[y, x, 1]), int(rgb[y, x, 2])
+            # 💡 [수정] 오작동하던 깐깐한 경고 로직을 완전히 제거했습니다.
+            # 대신 FloodFill의 오차 범위를 아주 정밀하게 잡아 검은 선 침범을 원천 차단합니다.
+            current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
             
-            # 💡 [핵심 개선 1] 어두운 선(검은색 라인)을 클릭했을 때는 작동하지 않도록 방어 코드 추가
-            # 캐릭터의 외곽선(RGB 값이 모두 80 이하로 어두운 경우)을 클릭하면 무시합니다.
-            if c_r < 80 and c_g < 80 and c_b < 80:
-                st.warning("캐릭터의 외곽선(검은 선)이 선택되었습니다. 배경 영역을 다시 클릭해 주세요!")
-            else:
-                current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
-                
-                # 💡 [핵심 개선 2] 오차 범위를 아주 정밀하게 좁힘 (loDiff=3, upDiff=3)
-                # 이 수치를 낮추면 클릭한 밝은 배경만 지우고, 조금이라도 어두워지는 검은색 외곽선 근처에서는 
-                # 탐색을 딱 멈추기 때문에 선이 파먹히는 현상을 완벽하게 막아줍니다.
-                flooded = rgb.copy()
-                cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(3, 3, 3), upDiff=(3, 3, 3))
-                
-                actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
-                
-                # 누적 마스크 합치기
-                st.session_state.bg_masks[original_name] = cv2.bitwise_or(
-                    st.session_state.bg_masks[original_name], 
-                    actual_current_mask
-                )
-                
-                # 최종 누적 마스크를 적용해 투명화
-                accumulated_mask = st.session_state.bg_masks[original_name]
-                new_alpha = alpha.copy()
-                new_alpha[accumulated_mask == 1] = 0
-                
-                output_array = np.dstack((rgb, new_alpha))
-                output_image = Image.fromarray(output_array)
-                st.session_state.processed_images[original_name] = output_image
+            # loDiff와 upDiff를 2로 설정하여, 클릭한 색상과 거의 일치하는 밝은 배경만 추적합니다.
+            # 이 상태로 전진하다가 검은색 외곽선(어두운 색)을 만나면 선을 넘지 않고 멈춥니다.
+            flooded = rgb.copy()
+            cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(2, 2, 2), upDiff=(2, 2, 2))
+            
+            actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
+            
+            # 누적 마스크 합치기 (여러 번 터치 가능)
+            st.session_state.bg_masks[original_name] = cv2.bitwise_or(
+                st.session_state.bg_masks[original_name], 
+                actual_current_mask
+            )
+            
+            # 최종 누적 마스크를 적용해 투명화
+            accumulated_mask = st.session_state.bg_masks[original_name]
+            new_alpha = alpha.copy()
+            new_alpha[accumulated_mask == 1] = 0
+            
+            output_array = np.dstack((rgb, new_alpha))
+            output_image = Image.fromarray(output_array)
+            st.session_state.processed_images[original_name] = output_image
 
         # 결과 출력 및 다운로드 영역
         with col2:
