@@ -7,7 +7,7 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 import cv2 
 
 st.title("🎯 스마트 배경 및 그림자 제거기")
-st.write("이미지에서 **지우고 싶은 부분(배경, 그림자 등)을 두세 번 반복해서 터치(클릭)**해 보세요!")
+st.write("이미지에서 지우고 싶은 부분을 터치하여 지우거나, 잘못 지워진 부분을 다시 채워보세요!")
 
 # 이미지 영역 마우스 오버 시 정밀 십자가 커서(+)로 변경하는 CSS
 st.markdown(
@@ -24,6 +24,13 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# 💡 [핵심 추가] 상단에 지우기/채우기 모드를 선택하는 토글 스위치 제공
+mode = st.radio(
+    "👉 작업 모드를 선택하세요:",
+    ["🔴 터치하여 투명하게 지우기", "🟢 잘못 지워진 곳 다시 채우기(복구)"],
+    horizontal=True
+)
+
 uploaded_files = st.file_uploader(
     "이미지를 선택하세요...", 
     type=["jpg", "jpeg", "png", "webp"], 
@@ -35,7 +42,6 @@ if uploaded_files:
         st.session_state.processed_images = {}
     if "bg_masks" not in st.session_state:
         st.session_state.bg_masks = {}
-    # 💡 [핵심 추가] 초기화 시 컴포넌트를 강제로 새로 고치기 위한 리셋 카운터 세션 생성
     if "reset_counters" not in st.session_state:
         st.session_state.reset_counters = {}
 
@@ -47,7 +53,6 @@ if uploaded_files:
         st.markdown("---")
         st.subheader(f"작업 파일: {original_name}")
         
-        # 파일별 리셋 카운터 초기화
         if original_name not in st.session_state.reset_counters:
             st.session_state.reset_counters[original_name] = 0
             
@@ -62,7 +67,7 @@ if uploaded_files:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.write("👇 투명하게 만들 곳들을 연속해서 클릭하세요.")
+            st.write("👇 이미지 위의 대상을 조준해서 클릭하세요.")
             
             # 세로 잘림 방지 뷰페이지 스케일링 (280px 제한)
             max_size = 280
@@ -75,8 +80,6 @@ if uploaded_files:
                 scale_ratio = 1.0
                 preview_img_for_click = image
 
-            # 💡 [핵심 수정] key 이름 뒤에 리셋 카운터 숫자를 조합합니다. (예: click_파일이름_0)
-            # 초기화 버튼을 누르면 이 숫자가 바뀌면서 컴포넌트가 이전 클릭 기억을 완전히 망각하고 새로 태어납니다.
             current_counter = st.session_state.reset_counters[original_name]
             value = streamlit_image_coordinates(
                 preview_img_for_click, 
@@ -104,11 +107,20 @@ if uploaded_files:
                 actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
                 actual_current_mask[line_mask] = 0
                 
-                # 누적 마스크 합치기
-                st.session_state.bg_masks[original_name] = cv2.bitwise_or(
-                    st.session_state.bg_masks[original_name], 
-                    actual_current_mask
-                )
+                # 💡 [핵심 수정] 선택된 모드에 따라 마스크를 더하거나 뺍니다.
+                if "🔴" in mode:
+                    # 지우기 모드: 기존 투명 마스크에 합치기 (OR 연산)
+                    st.session_state.bg_masks[original_name] = cv2.bitwise_or(
+                        st.session_state.bg_masks[original_name], 
+                        actual_current_mask
+                    )
+                else:
+                    # 채우기(복구) 모드: 기존 투명 마스크에서 이번에 선택된 영역을 지우기 (원래대로 되돌림)
+                    # 비트 반전 후 AND 연산을 통해 해당 구역의 투명 마스크를 해제합니다.
+                    st.session_state.bg_masks[original_name] = cv2.bitwise_and(
+                        st.session_state.bg_masks[original_name], 
+                        cv2.bitwise_not(actual_current_mask)
+                    )
                 
                 # 최종 누적 마스크를 적용해 투명화
                 accumulated_mask = st.session_state.bg_masks[original_name]
@@ -122,7 +134,7 @@ if uploaded_files:
         # 결과 출력 및 다운로드 영역
         with col2:
             if original_name in st.session_state.processed_images:
-                st.write("✨ 결과 이미지 (여러 번 터치 누적 적용 중)")
+                st.write("✨ 결과 이미지")
                 out_img = st.session_state.processed_images[original_name]
                 
                 bg_checker = Image.new("RGBA", out_img.size, (255, 255, 255, 255))
@@ -156,15 +168,11 @@ if uploaded_files:
                     key=f"dl_{original_name}"
                 )
                 
-                # 🔄 [수정] 무적의 초기화 버튼 로직
                 if st.button("초기화 (다시 지우기)", key=f"reset_{original_name}"):
-                    # 이미지 및 마스크 데이터 삭제
                     if original_name in st.session_state.processed_images:
                         del st.session_state.processed_images[original_name]
                     if original_name in st.session_state.bg_masks:
                         del st.session_state.bg_masks[original_name]
-                    
-                    # 💡 카운터를 1 증가시켜 클릭 컴포넌트의 캐시를 강제로 파괴 및 새로고침 유도
                     st.session_state.reset_counters[original_name] += 1
                     st.rerun()
             else:
