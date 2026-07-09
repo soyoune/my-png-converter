@@ -95,21 +95,27 @@ if uploaded_files:
                 rgb = img_array[:, :, :3]
                 alpha = img_array[:, :, 3]
                 
-                # 💡 [모드별 동작 분기]
                 if "🔴" in mode:
-                    # 💡 [핵심 수정] 어두운 선 장벽을 조금 더 유연하게 판단하도록 임계값 완화 (110 -> 80)
-                    line_mask = (rgb[:, :, 0] < 80) & (rgb[:, :, 1] < 80) & (rgb[:, :, 2] < 80)
+                    # 💡 [핵심 알고리즘 수정] 단순히 색상 차이만 보지 않고 그레이스케일 대비를 활용해 사람의 형태 윤곽(Gradient)을 보호합니다.
+                    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+                    
+                    # 대비를 주어 인물과 배경의 경계선을 더 명확하게 시뮬레이션
+                    _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
+                    
                     current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
-                    current_flood_mask[1:h+1, 1:w+1][line_mask] = 1
                     
+                    # 클릭한 지점의 색상 특성을 분석해 유연하게 floodFill 수행
                     flooded = rgb.copy()
-                    
-                    # 💡 [핵심 수정] 색상 허용 오차 범위를 (10, 10, 10)에서 (5, 5, 5)로 대폭 축소!
-                    # 이제 흰색 배경과 아주 미세하게 다른 연회색 옷은 파먹지 않고 멈추게 됩니다.
-                    cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(5, 5, 5), upDiff=(5, 5, 5))
+                    cv2.floodFill(
+                        flooded, 
+                        current_flood_mask, 
+                        (x, y), 
+                        (0, 0, 0), 
+                        loDiff=(3, 3, 3), # 살색/입술이 번지지 않도록 오차 범위를 극단적으로 정밀하게 제어
+                        upDiff=(3, 3, 3)
+                    )
                     
                     actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
-                    actual_current_mask[line_mask] = 0
                     
                     # 지우기 마스크 누적 합치기
                     st.session_state.bg_masks[original_name] = cv2.bitwise_or(
