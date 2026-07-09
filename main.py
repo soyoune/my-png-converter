@@ -9,11 +9,10 @@ import cv2
 st.title("🎯 스마트 배경 및 그림자 제거기")
 st.write("이미지에서 **지우고 싶은 부분(배경, 그림자 등)을 두세 번 반복해서 터치(클릭)**해 보세요!")
 
-# 💡 [핵심 추가] 왼쪽 클릭 이미지 영역에 마우스를 올렸을 때 커서를 십자가(crosshair) 모양으로 바꾸는 CSS
+# 이미지 영역 마우스 오버 시 정밀 십자가 커서(+)로 변경하는 CSS
 st.markdown(
     """
     <style>
-    /* 클릭 컴포넌트 내부의 이미지와 주변 영역에 정밀 십자가 커서 적용 */
     div[data-testid="stHorizontalBlock"] iframe, 
     div[data-testid="stHorizontalBlock"] img,
     .stImageCoordinates, 
@@ -36,6 +35,9 @@ if uploaded_files:
         st.session_state.processed_images = {}
     if "bg_masks" not in st.session_state:
         st.session_state.bg_masks = {}
+    # 💡 [핵심 추가] 초기화 시 컴포넌트를 강제로 새로 고치기 위한 리셋 카운터 세션 생성
+    if "reset_counters" not in st.session_state:
+        st.session_state.reset_counters = {}
 
     for uploaded_file in uploaded_files:
         original_name = uploaded_file.name
@@ -45,6 +47,10 @@ if uploaded_files:
         st.markdown("---")
         st.subheader(f"작업 파일: {original_name}")
         
+        # 파일별 리셋 카운터 초기화
+        if original_name not in st.session_state.reset_counters:
+            st.session_state.reset_counters[original_name] = 0
+            
         # 1. 고화질 원본 이미지 로드
         image = Image.open(uploaded_file).convert("RGBA")
         img_array = np.array(image)
@@ -58,9 +64,8 @@ if uploaded_files:
         with col1:
             st.write("👇 투명하게 만들 곳들을 연속해서 클릭하세요.")
             
-            # 세로 잘림을 방지하기 위한 크기 제한 (280px)
+            # 세로 잘림 방지 뷰페이지 스케일링 (280px 제한)
             max_size = 280
-            
             if w > max_size or h > max_size:
                 scale_ratio = min(max_size / w, max_size / h)
                 preview_w = int(w * scale_ratio)
@@ -70,8 +75,13 @@ if uploaded_files:
                 scale_ratio = 1.0
                 preview_img_for_click = image
 
-            # 이제 이 이미지 위에 마우스를 올리면 일반 화살표가 아닌 십자가(+) 커서가 뜹니다.
-            value = streamlit_image_coordinates(preview_img_for_click, key=f"click_{original_name}")
+            # 💡 [핵심 수정] key 이름 뒤에 리셋 카운터 숫자를 조합합니다. (예: click_파일이름_0)
+            # 초기화 버튼을 누르면 이 숫자가 바뀌면서 컴포넌트가 이전 클릭 기억을 완전히 망각하고 새로 태어납니다.
+            current_counter = st.session_state.reset_counters[original_name]
+            value = streamlit_image_coordinates(
+                preview_img_for_click, 
+                key=f"click_{original_name}_{current_counter}"
+            )
             
         if value is not None:
             # 축소 화면의 좌표를 원본 고해상도 좌표로 정확하게 역계산
@@ -146,9 +156,16 @@ if uploaded_files:
                     key=f"dl_{original_name}"
                 )
                 
+                # 🔄 [수정] 무적의 초기화 버튼 로직
                 if st.button("초기화 (다시 지우기)", key=f"reset_{original_name}"):
-                    del st.session_state.processed_images[original_name]
-                    del st.session_state.bg_masks[original_name]
+                    # 이미지 및 마스크 데이터 삭제
+                    if original_name in st.session_state.processed_images:
+                        del st.session_state.processed_images[original_name]
+                    if original_name in st.session_state.bg_masks:
+                        del st.session_state.bg_masks[original_name]
+                    
+                    # 💡 카운터를 1 증가시켜 클릭 컴포넌트의 캐시를 강제로 파괴 및 새로고침 유도
+                    st.session_state.reset_counters[original_name] += 1
                     st.rerun()
             else:
                 st.info("왼쪽 이미지에서 지우고 싶은 곳을 터치하면 결과가 여기에 표시됩니다.")
