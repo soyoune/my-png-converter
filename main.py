@@ -5,19 +5,32 @@ import io
 import os
 from streamlit_image_coordinates import streamlit_image_coordinates
 
-st.title("🎯 스마트 배경 지우개 & 복구 브러시")
-st.write("1. 배경을 클릭해 캐릭터를 보호하면서 배경을 싹 지우세요.")
-st.write("2. 파먹힌 부분이나 미세한 곳은 모자를 보호하며 브러시 모드로 문질러 복구하세요!")
+st.title("🎯 스마트 배경 지우개 & 포토샵형 복구 브러시")
+st.write("1. 배경을 클릭해 캐릭터를 보호하면서 배경을 먼저 지우세요.")
+st.write("2. 모드가 바뀐 뒤 이미지 위로 마우스를 올리면 **포토샵처럼 원형 브러시 크기**가 표시됩니다!")
 
-# 💡 모드 선택 (첫 번째 모드로 배경을 넓게 지우고 시작합니다)
+# 작업 모드 선택
 mode = st.radio(
     "👉 작업 모드를 선택하세요:",
-    ["🔴 터치하여 배경 한 번에 지우기 (캐릭터 보호)", "🧹 덜 지워진 곳 조금씩 지우기 (지우개 브러시)", "🟢 잘못 지워진 곳 조금씩 채우기 (복구 브러시)"],
+    ["🔴 터치하여 배경 한 번에 지우기 (캐릭터 보호)", "🟢 잘못 지워진 곳 슥슥 문질러 채우기 (포토샵형 복구 브러시)"],
     horizontal=True
 )
 
 # 브러시 크기 조절
-brush_size = st.slider("🖌️ 지우개 / 복구 브러시 크기 조절", min_value=5, max_value=80, value=20, step=5)
+brush_size = st.slider("🖌️ 복구 브러시 크기 조절", min_value=10, max_value=100, value=30, step=5)
+
+# 💡 [핵심 추가] 마우스가 올라갔을 때 포토샵처럼 브러시 크기의 원형(Circle) 커서가 따라다니도록 만드는 CSS 효과
+st.markdown(
+    f"""
+    <style>
+    /* 이미지 편집 영역 위에만 포토샵 스타일의 원형 커서 적용 */
+    .stImageCoordinates, .stImageCoordinates img, img {{
+        cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="{brush_size*2}" height="{brush_size*2}" viewBox="0 0 {brush_size*2} {brush_size*2}"><circle cx="{brush_size}" cy="{brush_size}" r="{brush_size-1}" stroke="%23ff4b4b" stroke-width="1.5" fill="none" stroke-dasharray="3,3"/></svg>') {brush_size} {brush_size}, crosshair !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 uploaded_files = st.file_uploader(
     "이미지를 선택하세요...", 
@@ -32,6 +45,9 @@ if uploaded_files:
         st.session_state.bg_masks = {}
     if "reset_counters" not in st.session_state:
         st.session_state.reset_counters = {}
+    # 드래그 궤적 추적을 위한 좌표 메모리
+    if "last_mouse_pos" not in st.session_state:
+        st.session_state.last_mouse_pos = None
 
     for uploaded_file in uploaded_files:
         original_name = uploaded_file.name
@@ -49,64 +65,60 @@ if uploaded_files:
         img_array = np.array(image)
         h, w = img_array.shape[:2]
         
-        # 누적 마스크 초기화 (0: 유지, 1: 투명화)
+        # 누적 마스크 초기화
         if original_name not in st.session_state.bg_masks:
             st.session_state.bg_masks[original_name] = np.zeros((h, w), np.uint8)
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.write("👇 아래 이미지에서 작업을 원하는 곳을 콕 찍으세요.")
+            st.write("👇 이미지 위에서 마우스를 움직이거나 클릭하여 복구하세요.")
             
-            # 화면 크기에 맞게 미리보기 이미지 조절 (가로 350 고정)
             display_width = 350
             scale_ratio = display_width / w
             display_height = int(h * scale_ratio)
             preview_img_for_click = image.resize((display_width, display_height), Image.Resampling.LANCZOS)
 
             current_counter = st.session_state.reset_counters[original_name]
+            
+            # 실시간 좌표와 무브먼트를 연속 감지하는 컴포넌트 호출
             value = streamlit_image_coordinates(
                 preview_img_for_click, 
                 key=f"click_{original_name}_{current_counter}"
             )
             
         if value is not None:
-            # 클릭 좌표를 원본 고해상도 좌표로 변환
             x = int(int(value["x"]) / scale_ratio)
             y = int(int(value["y"]) / scale_ratio)
             
             if 0 <= x < w and 0 <= y < h:
                 rgb = img_array[:, :, :3]
-                alpha = img_array[:, :, 3]
-                
-                # 마스크를 조절하기 위해 PIL ImageDraw 활용
                 mask_img = Image.fromarray(st.session_state.bg_masks[original_name] * 255).convert("L")
                 draw = ImageDraw.Draw(mask_img)
                 
                 if "🔴" in mode:
-                    # 💡 [캐릭터 보호용 스마트 자동 지우개]
-                    # 선택한 타겟 색상(배경)과 비슷한 색상만 원본 전체에서 찾아 지웁니다.
+                    # 스마트 배경 자동 제거
                     target_color = rgb[y, x]
-                    # 캐릭터 피부톤이나 옷색상으로 번지는 것을 막기 위해 오차 범위를 아주 깐깐하게(15) 잡음
                     color_diff = np.abs(rgb - target_color)
                     color_mask = np.all(color_diff < 15, axis=-1)
-                    
-                    # 찾아낸 배경 영역을 투명화 마스크에 병합
                     current_mask = np.where(color_mask, 255, 0).astype(np.uint8)
                     temp_mask_img = Image.fromarray(current_mask)
                     mask_img = Image.blend(mask_img, temp_mask_img, 1.0)
-                    
-                elif "🧹" in mode:
-                    # 🧹 수동 지우개 브러시: 마우스 주변을 브러시 크기만큼 싹 지우기
-                    draw.ellipse([x - brush_size, y - brush_size, x + brush_size, y + brush_size], fill=255)
-                    
+                    st.session_state.last_mouse_pos = None # 좌표 초기화
                 else:
-                    # 🟢 수동 복구 브러시: 얼굴이나 모자가 파먹힌 부위를 찍으면 원본으로 깨끗하게 복구!
+                    # 💡 [연속 드래그 붓 터치 시뮬레이션]
+                    # 이전 마우스 위치가 있다면 끊어지지 않게 선(Line)으로 연결하여 슥슥 문지르는 효과를 구현합니다.
+                    if st.session_state.last_mouse_pos is not None:
+                        lx, ly = st.session_state.last_mouse_pos
+                        draw.line([lx, ly, x, y], fill=0, width=brush_size * 2)
+                    
+                    # 현재 마우스 위치에 둥근 브러시 칠하기
                     draw.ellipse([x - brush_size, y - brush_size, x + brush_size, y + brush_size], fill=0)
+                    st.session_state.last_mouse_pos = (x, y)
                 
                 st.session_state.bg_masks[original_name] = np.array(mask_img) // 255
 
-        # 최종 마스크 적용하여 투명도 반영
+        # 최종 투명도 반영
         accumulated_mask = st.session_state.bg_masks[original_name]
         rgb = img_array[:, :, :3]
         alpha = img_array[:, :, 3].copy()
@@ -114,11 +126,8 @@ if uploaded_files:
         
         output_image = Image.fromarray(np.dstack((rgb, alpha)))
 
-        # 우측 결과 출력 및 다운로드 영역
         with col2:
             st.write("✨ 실시간 결과 이미지")
-            
-            # 투명 격자 배경판 만들기
             bg_checker = Image.new("RGBA", output_image.size, (255, 255, 255, 255))
             draw_grid = ImageDraw.Draw(bg_checker)
             grid_size = 16
@@ -127,7 +136,6 @@ if uploaded_files:
                     if (i // grid_size + j // grid_size) % 2 == 0:
                         draw_grid.rectangle([i, j, i + grid_size, j + grid_size], fill=(240, 240, 240, 255))
             
-            # 최종 미리보기 화면 합성
             preview_img = Image.alpha_composite(bg_checker, output_image).resize((display_width, display_height))
             st.image(preview_img, caption="💡 격자 부분 = 투명하게 지워진 영역")
             
@@ -146,5 +154,6 @@ if uploaded_files:
             if st.button("🔄 처음부터 다시 하기 (초기화)", key=f"reset_{original_name}"):
                 if original_name in st.session_state.bg_masks:
                     st.session_state.bg_masks[original_name] = np.zeros((h, w), np.uint8)
+                st.session_state.last_mouse_pos = None
                 st.session_state.reset_counters[original_name] += 1
                 st.rerun()
