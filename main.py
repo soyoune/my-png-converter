@@ -97,13 +97,16 @@ if uploaded_files:
                 
                 # 💡 [모드별 동작 분기]
                 if "🔴" in mode:
-                    # 기존 방식: 클릭한 곳을 기준으로 유사한 영역 전체를 지우기
-                    line_mask = (rgb[:, :, 0] < 110) & (rgb[:, :, 1] < 110) & (rgb[:, :, 2] < 110)
+                    # 💡 [핵심 수정] 어두운 선 장벽을 조금 더 유연하게 판단하도록 임계값 완화 (110 -> 80)
+                    line_mask = (rgb[:, :, 0] < 80) & (rgb[:, :, 1] < 80) & (rgb[:, :, 2] < 80)
                     current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
                     current_flood_mask[1:h+1, 1:w+1][line_mask] = 1
                     
                     flooded = rgb.copy()
-                    cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(10, 10, 10), upDiff=(10, 10, 10))
+                    
+                    # 💡 [핵심 수정] 색상 허용 오차 범위를 (10, 10, 10)에서 (5, 5, 5)로 대폭 축소!
+                    # 이제 흰색 배경과 아주 미세하게 다른 연회색 옷은 파먹지 않고 멈추게 됩니다.
+                    cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(5, 5, 5), upDiff=(5, 5, 5))
                     
                     actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
                     actual_current_mask[line_mask] = 0
@@ -114,13 +117,11 @@ if uploaded_files:
                         actual_current_mask
                     )
                 else:
-                    # 🟢 채우기(정밀 복구) 방식: 전체가 아닌 마우스를 댄 곳 주변만 조금씩 원형(Brush)으로 채우기
-                    # 반지름(radius)을 조절하여 한 번에 복구할 브러시 크기를 지정할 수 있습니다. (현재 15픽셀)
+                    # 🟢 채우기(정밀 복구) 방식: 브러시 반경만큼만 원래대로 복원
                     brush_radius = 15
                     brush_mask = np.zeros((h, w), np.uint8)
                     cv2.circle(brush_mask, (x, y), brush_radius, 1, -1)
                     
-                    # 해당 브러시 영역만 기존 투명 마스크(bg_masks)에서 제거하여 원래대로 복원
                     st.session_state.bg_masks[original_name] = cv2.bitwise_and(
                         st.session_state.bg_masks[original_name], 
                         cv2.bitwise_not(brush_mask)
