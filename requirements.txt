@@ -1,0 +1,3 @@
+rembg
+streamlit-canvas
+opencv-python-headless
