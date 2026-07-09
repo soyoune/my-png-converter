@@ -7,7 +7,7 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 import cv2 
 
 st.title("🎯 스마트 배경 및 그림자 제거기")
-st.write("이미지에서 지우고 싶은 부분을 터치하여 지우거나, 잘못 지워진 부분을 다시 채워보세요!")
+st.write("이미지에서 지우고 싶은 부분을 터치하여 지우거나, 잘못 지워진 부분을 조금씩 정밀하게 복구해 보세요!")
 
 # 이미지 영역 마우스 오버 시 정밀 십자가 커서(+)로 변경하는 CSS
 st.markdown(
@@ -24,10 +24,10 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 💡 [핵심 추가] 상단에 지우기/채우기 모드를 선택하는 토글 스위치 제공
+# 작업 모드 선택
 mode = st.radio(
     "👉 작업 모드를 선택하세요:",
-    ["🔴 터치하여 투명하게 지우기", "🟢 잘못 지워진 곳 다시 채우기(복구)"],
+    ["🔴 터치하여 투명하게 지우기 (넓은 영역)", "🟢 잘못 지워진 곳 조금씩 채우기 (정밀 복구)"],
     horizontal=True
 )
 
@@ -95,31 +95,35 @@ if uploaded_files:
                 rgb = img_array[:, :, :3]
                 alpha = img_array[:, :, 3]
                 
-                # 검은색 라인 물리 장벽 구축
-                line_mask = (rgb[:, :, 0] < 110) & (rgb[:, :, 1] < 110) & (rgb[:, :, 2] < 110)
-                
-                current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
-                current_flood_mask[1:h+1, 1:w+1][line_mask] = 1
-                
-                flooded = rgb.copy()
-                cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(10, 10, 10), upDiff=(10, 10, 10))
-                
-                actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
-                actual_current_mask[line_mask] = 0
-                
-                # 💡 [핵심 수정] 선택된 모드에 따라 마스크를 더하거나 뺍니다.
+                # 💡 [모드별 동작 분기]
                 if "🔴" in mode:
-                    # 지우기 모드: 기존 투명 마스크에 합치기 (OR 연산)
+                    # 기존 방식: 클릭한 곳을 기준으로 유사한 영역 전체를 지우기
+                    line_mask = (rgb[:, :, 0] < 110) & (rgb[:, :, 1] < 110) & (rgb[:, :, 2] < 110)
+                    current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
+                    current_flood_mask[1:h+1, 1:w+1][line_mask] = 1
+                    
+                    flooded = rgb.copy()
+                    cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(10, 10, 10), upDiff=(10, 10, 10))
+                    
+                    actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
+                    actual_current_mask[line_mask] = 0
+                    
+                    # 지우기 마스크 누적 합치기
                     st.session_state.bg_masks[original_name] = cv2.bitwise_or(
                         st.session_state.bg_masks[original_name], 
                         actual_current_mask
                     )
                 else:
-                    # 채우기(복구) 모드: 기존 투명 마스크에서 이번에 선택된 영역을 지우기 (원래대로 되돌림)
-                    # 비트 반전 후 AND 연산을 통해 해당 구역의 투명 마스크를 해제합니다.
+                    # 🟢 채우기(정밀 복구) 방식: 전체가 아닌 마우스를 댄 곳 주변만 조금씩 원형(Brush)으로 채우기
+                    # 반지름(radius)을 조절하여 한 번에 복구할 브러시 크기를 지정할 수 있습니다. (현재 15픽셀)
+                    brush_radius = 15
+                    brush_mask = np.zeros((h, w), np.uint8)
+                    cv2.circle(brush_mask, (x, y), brush_radius, 1, -1)
+                    
+                    # 해당 브러시 영역만 기존 투명 마스크(bg_masks)에서 제거하여 원래대로 복원
                     st.session_state.bg_masks[original_name] = cv2.bitwise_and(
                         st.session_state.bg_masks[original_name], 
-                        cv2.bitwise_not(actual_current_mask)
+                        cv2.bitwise_not(brush_mask)
                     )
                 
                 # 최종 누적 마스크를 적용해 투명화
