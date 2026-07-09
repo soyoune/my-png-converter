@@ -3,36 +3,21 @@ from PIL import Image, ImageDraw
 import numpy as np
 import io
 import os
-from streamlit_image_coordinates import streamlit_image_coordinates
-import cv2 
+# 💡 마우스 드래그 기능을 위해 전용 캔버스 라이브러리 적용
+from streamlit_canvas import st_canvas
 
-st.title("🎯 스마트 배경 및 그림자 제거기")
-st.write("인물과 배경색이 비슷해도 안전하게 지울 수 있도록 정밀도를 극대화했습니다.")
+st.title("🎨 드래그식 스마트 배경 제거 및 복구기")
+st.write("마우스로 원하는 부위를 붓처럼 슥슥 문질러서(드래그) 지우거나 채워보세요!")
 
-# 이미지 영역 마우스 오버 시 정밀 십자가 커서(+)로 변경하는 CSS
-st.markdown(
-    """
-    <style>
-    div[data-testid="stHorizontalBlock"] iframe, 
-    div[data-testid="stHorizontalBlock"] img,
-    .stImageCoordinates, 
-    img {
-        cursor: crosshair !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-# 💡 더 세밀한 편집을 위한 3가지 모드 세분화
+# 작업 모드 선택
 mode = st.radio(
     "👉 작업 모드를 선택하세요:",
-    ["🔴 터치하여 배경 지우기 (번짐 차단 모드)", "🧹 마우스 주변 조금씩 지우기 (지우개)", "🟢 잘못 지워진 곳 조금씩 채우기 (복구 브러시)"],
+    ["🔴 마우스 드래그로 투명하게 지우기", "🟢 잘못 지워진 곳 드래그로 다시 채우기(복구)"],
     horizontal=True
 )
 
-# 💡 사용자가 원하는 브러시 크기를 조절할 수 있는 슬라이더 추가
-brush_size = st.slider("🖌️ 지우개 / 복구 브러시 크기 조절", min_value=5, max_value=50, value=15, step=5)
+# 브러시 크기 조절
+brush_size = st.slider("🖌️ 붓(브러시) 크기 조절", min_value=5, max_value=80, value=20, step=5)
 
 uploaded_files = st.file_uploader(
     "이미지를 선택하세요...", 
@@ -41,12 +26,8 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    if "processed_images" not in st.session_state:
-        st.session_state.processed_images = {}
     if "bg_masks" not in st.session_state:
         st.session_state.bg_masks = {}
-    if "reset_counters" not in st.session_state:
-        st.session_state.reset_counters = {}
 
     for uploaded_file in uploaded_files:
         original_name = uploaded_file.name
@@ -56,133 +37,100 @@ if uploaded_files:
         st.markdown("---")
         st.subheader(f"작업 파일: {original_name}")
         
-        if original_name not in st.session_state.reset_counters:
-            st.session_state.reset_counters[original_name] = 0
-            
-        # 1. 고화질 원본 이미지 로드
+        # 원본 이미지 로드
         image = Image.open(uploaded_file).convert("RGBA")
         img_array = np.array(image)
         h, w = img_array.shape[:2]
         
+        # 고정된 화면 보기 크기 설정 (화면에 맞게 스케일링)
+        display_width = 350
+        scale_ratio = display_width / w
+        display_height = int(h * scale_ratio)
+        
+        # 누적 마스크 초기화 (처음에는 아무것도 안 지워진 상태)
         if original_name not in st.session_state.bg_masks:
             st.session_state.bg_masks[original_name] = np.zeros((h, w), np.uint8)
-        
+            
         col1, col2 = st.columns(2)
         
         with col1:
-            st.write("👇 이미지 위를 콕콕 터치하여 편집하세요.")
+            st.write("👇 왼쪽 이미지 위를 마우스로 꾹 누른 채 드래그하세요.")
             
-            # 세로 잘림 방지 뷰페이지 스케일링 (280px 제한)
-            max_size = 280
-            if w > max_size or h > max_size:
-                scale_ratio = min(max_size / w, max_size / h)
-                preview_w = int(w * scale_ratio)
-                preview_h = int(h * scale_ratio)
-                preview_img_for_click = image.resize((preview_w, preview_h), Image.Resampling.LANCZOS)
-            else:
-                scale_ratio = 1.0
-                preview_img_for_click = image
-
-            current_counter = st.session_state.reset_counters[original_name]
-            value = streamlit_image_coordinates(
-                preview_img_for_click, 
-                key=f"click_{original_name}_{current_counter}"
+            # 캔버스에 그릴 색상 결정 (지우기는 하얗게 칠하고, 복구는 까맣게 칠하는 원리)
+            stroke_color = "#FFFFFF" if "🔴" in mode else "#000000"
+            
+            # 💡 드래그 입력을 받는 실시간 캔버스 생성
+            canvas_result = st_canvas(
+                fill_color="rgba(255, 165, 0, 0.3)",  # 채우기 없음
+                stroke_width=int(brush_size * scale_ratio), # 현재 화면 배율에 맞는 붓 크기
+                stroke_color=stroke_color,
+                background_image=image.resize((display_width, display_height)),
+                update_streamlit=True,
+                height=display_height,
+                width=display_width,
+                drawing_mode="freedraw",
+                key=f"canvas_{original_name}_{mode}", # 모드가 바뀔 때마다 캔버스 갱신
             )
             
-        if value is not None:
-            # 축소 화면의 좌표를 원본 고해상도 좌표로 정확하게 역계산
-            x = int(int(value["x"]) / scale_ratio)
-            y = int(int(value["y"]) / scale_ratio)
+        # 드래그한 마우스 궤적(데이터)이 존재할 때 마스크 계산
+        if canvas_result.image_data is not None:
+            # 캔버스에 그려진 선(마스크) 추출
+            drawn_mask = canvas_result.image_data[:, :, 0] > 0
             
-            if 0 <= x < w and 0 <= y < h:
-                rgb = img_array[:, :, :3]
-                alpha = img_array[:, :, 3]
-                
-                # 💡 선택한 모드에 따른 동작 제어
-                if "🔴" in mode:
-                    # 번짐 차단 모드: 오차 허용치를 극단적인 (1, 1, 1)로 제한하여
-                    # 완벽하게 똑같은 색상의 배경만 지우고 인물 경계에서 무조건 멈추게 만듭니다.
-                    current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
-                    flooded = rgb.copy()
-                    
-                    cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(1, 1, 1), upDiff=(1, 1, 1))
-                    actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
-                    
-                    st.session_state.bg_masks[original_name] = cv2.bitwise_or(
-                        st.session_state.bg_masks[original_name], 
-                        actual_current_mask
-                    )
-                elif "🧹" in mode:
-                    # 수동 지우개 모드: 클릭한 부분 주변을 슬라이더 크기만큼 강제로 지웁니다.
-                    brush_mask = np.zeros((h, w), np.uint8)
-                    cv2.circle(brush_mask, (x, y), brush_size, 1, -1)
-                    
-                    st.session_state.bg_masks[original_name] = cv2.bitwise_or(
-                        st.session_state.bg_masks[original_name], 
-                        brush_mask
-                    )
-                else:
-                    # 수동 복구 브러시 모드: 목 뒤 모자나 얼굴 등 날아간 부위를 조준해 터치하면 그 부분만 원래대로 채웁니다.
-                    brush_mask = np.zeros((h, w), np.uint8)
-                    cv2.circle(brush_mask, (x, y), brush_size, 1, -1)
-                    
-                    st.session_state.bg_masks[original_name] = cv2.bitwise_and(
-                        st.session_state.bg_masks[original_name], 
-                        cv2.bitwise_not(brush_mask)
-                    )
-                
-                # 최종 누적 마스크를 적용해 투명화
-                accumulated_mask = st.session_state.bg_masks[original_name]
-                new_alpha = alpha.copy()
-                new_alpha[accumulated_mask == 1] = 0
-                
-                output_array = np.dstack((rgb, new_alpha))
-                output_image = Image.fromarray(output_array)
-                st.session_state.processed_images[original_name] = output_image
-
-        # 결과 출력 및 다운로드 영역
-        with col2:
-            if original_name in st.session_state.processed_images:
-                st.write("✨ 결과 이미지")
-                out_img = st.session_state.processed_images[original_name]
-                
-                bg_checker = Image.new("RGBA", out_img.size, (255, 255, 255, 255))
-                ch_w, ch_h = out_img.size
-                grid_size = 16
-                
-                draw = ImageDraw.Draw(bg_checker)
-                for i in range(0, ch_w, grid_size):
-                    for j in range(0, ch_h, grid_size):
-                        if (i // grid_size + j // grid_size) % 2 == 0:
-                            draw.rectangle([i, j, i + grid_size, j + grid_size], fill=(240, 240, 240, 255))
-                
-                if ch_w > max_size or ch_h > max_size:
-                    out_scale = min(max_size / ch_w, max_size / ch_h)
-                    res_w, res_h = int(ch_w * out_scale), int(ch_h * out_scale)
-                    preview_img = Image.alpha_composite(bg_checker, out_img).resize((res_w, res_h), Image.Resampling.LANCZOS)
-                else:
-                    preview_img = Image.alpha_composite(bg_checker, out_img)
-                    
-                st.image(preview_img, caption="💡 격자 부분 = 투명하게 지워진 영역")
-                
-                buf = io.BytesIO()
-                out_img.save(buf, format="PNG")
-                byte_im = buf.getvalue()
-                
-                st.download_button(
-                    label=f"📥 {new_filename} 다운로드",
-                    data=byte_im,
-                    file_name=new_filename,
-                    mime="image/png",
-                    key=f"dl_{original_name}"
-                )
-                
-                if st.button("초기화 (다시 지우기)", key=f"reset_{original_name}"):
-                    if original_name in st.session_state.processed_images:
-                        del st.session_state.processed_images[original_name]
-                    if original_name in st.session_state.bg_masks:
-                        del st.session_state.bg_masks[original_name]
-                    st.session_state.reset_counters[original_name] += 1
-                    st.rerun()
+            # 화면 크기 마스크를 다시 원본 고해상도 크기로 복원
+            drawn_mask_resized = np.array(Image.fromarray(drawn_mask).resize((w, h), Image.Resampling.NEAREST))
+            
+            if "🔴" in mode:
+                # 지우기: 드래그한 영역을 투명 마스크에 추가
+                st.session_state.bg_masks[original_name] = np.logical_or(
+                    st.session_state.bg_masks[original_name], drawn_mask_resized
+                ).astype(np.uint8)
             else:
-                st.info("왼쪽 이미지에서 지우고 싶은 곳을 터치하면 결과가 여기에 표시됩니다.")
+                # 복구: 드래그한 영역을 투명 마스크에서 제거
+                st.session_state.bg_masks[original_name] = np.logical_and(
+                    st.session_state.bg_masks[original_name], np.logical_not(drawn_mask_resized)
+                ).astype(np.uint8)
+
+        # 최종 누적 마스크를 원본에 투명도로 적용
+        accumulated_mask = st.session_state.bg_masks[original_name]
+        rgb = img_array[:, :, :3]
+        alpha = img_array[:, :, 3].copy()
+        alpha[accumulated_mask == 1] = 0
+        
+        output_image = Image.fromarray(np.dstack((rgb, alpha)))
+        
+        # 우측 결과 출력 및 다운로드 영역
+        with col2:
+            st.write("✨ 실시간 결과 이미지")
+            
+            # 배경 투명 격자판 생성
+            bg_checker = Image.new("RGBA", output_image.size, (255, 255, 255, 255))
+            draw = ImageDraw.Draw(bg_checker)
+            grid_size = 16
+            for i in range(0, w, grid_size):
+                for j in range(0, h, grid_size):
+                    if (i // grid_size + j // grid_size) % 2 == 0:
+                        draw.rectangle([i, j, i + grid_size, j + grid_size], fill=(240, 240, 240, 255))
+            
+            # 미리보기 이미지 합성 및 크기 조정
+            preview_img = Image.alpha_composite(bg_checker, output_image).resize((display_width, display_height))
+            st.image(preview_img, caption="💡 격자 부분 = 투명하게 지워진 영역")
+            
+            # 다운로드 버튼
+            buf = io.BytesIO()
+            output_image.save(buf, format="PNG")
+            byte_im = buf.getvalue()
+            
+            st.download_button(
+                label=f"📥 {new_filename} 다운로드",
+                data=byte_im,
+                file_name=new_filename,
+                mime="image/png",
+                key=f"dl_{original_name}"
+            )
+            
+            # 초기화 버튼
+            if st.button("🔄 전체 초기화 (처음부터 다시 하기)", key=f"reset_{original_name}"):
+                if original_name in st.session_state.bg_masks:
+                    del st.session_state.bg_masks[original_name]
+                st.rerun()
