@@ -3,3 +3,5 @@ streamlit-image-coordinates
 opencv-python-headless
 pillow
 numpy
+streamlit-canvas
+opencv-python-headless
