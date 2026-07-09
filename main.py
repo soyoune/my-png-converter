@@ -99,8 +99,8 @@ if uploaded_files:
                 # 격자 배경 위에 작업한 투명 이미지 합성
                 preview_img = Image.alpha_composite(bg_checker, out_img)
                 
-                # 화면 표시 (격자 포함)
-                st.image(preview_img, caption="💡 격자 부분 = 투명하게 지워진 영역", width=None)
+                # 💡 [수정] 최신 Streamlit 규격에 맞게 width='stretch' 적용하여 가로폭 에러 해결
+                st.image(preview_img, caption="💡 격자 부분 = 투명하게 지워진 영역", width="stretch")
                 
                 # 다운로드 파일 준비 (격자 없는 진짜 투명 이미지)
                 buf = io.BytesIO()
