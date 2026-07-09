@@ -29,7 +29,7 @@ if uploaded_files:
         st.markdown("---")
         st.subheader(f"작업 파일: {original_name}")
         
-        # 이미지 로드 및 초기 마스크 설정
+        # 1. 원본 이미지 로드 (크기 손실 방지를 위해 원본 배열 유지)
         image = Image.open(uploaded_file).convert("RGBA")
         img_array = np.array(image)
         h, w = img_array.shape[:2]
@@ -42,26 +42,28 @@ if uploaded_files:
         with col1:
             st.write("👇 투명하게 만들 곳들을 연속해서 클릭하세요.")
             
-            # 💡 [핵심 수정] 에러를 일으키던 옵션을 제거하고, CSS를 주입해 이미지가 화면 칸을 탈출하지 못하도록 강제 고정합니다.
-            st.markdown(
-                """
-                <style>
-                div[data-testid="stHorizontalBlock"] img {
-                    max-width: 100% !important;
-                    height: auto !important;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
-            
-            # 안전한 기본 호출 방식으로 롤백하여 TypeError를 완벽히 제거합니다.
-            value = streamlit_image_coordinates(image, key=f"click_{original_name}")
+            # 💡 [핵심 수정] 화면이 터지는 것을 막기 위해 '미리보기용 축소 이미지'를 만듭니다.
+            # 가로 폭을 최대 400픽셀로 제한하되, 비율을 유지합니다.
+            max_preview_width = 400
+            if w > max_preview_width:
+                scale_ratio = max_preview_width / w
+                preview_w = max_preview_width
+                preview_h = int(h * scale_ratio)
+                # 터치 좌표 컴포넌트에는 이 축소된 이미지를 띄워 화면 밖으로 못 나가게 가둡니다.
+                preview_img_for_click = image.resize((preview_w, preview_h), Image.Resampling.LANCZOS)
+            else:
+                scale_ratio = 1.0
+                preview_img_for_click = image
+
+            # 축소된 뷰페이지 이미지로 안전하게 좌표 수집
+            value = streamlit_image_coordinates(preview_img_for_click, key=f"click_{original_name}")
             
         if value is not None:
-            x, y = int(value["x"]), int(value["y"])
+            # 💡 축소 화면에서의 클릭 좌표를 실제 '원본 이미지의 고해상도 좌표'로 역계산(매핑)합니다.
+            x = int(int(value["x"]) / scale_ratio)
+            y = int(int(value["y"]) / scale_ratio)
             
-            # 좌표가 원본 이미지 범위를 벗어나는 것 방지
+            # 계산된 좌표가 원본 범위 안에 있을 때만 연산 수행
             if 0 <= x < w and 0 <= y < h:
                 rgb = img_array[:, :, :3]
                 alpha = img_array[:, :, 3]
@@ -84,7 +86,7 @@ if uploaded_files:
                     actual_current_mask
                 )
                 
-                # 최종 누적 마스크를 적용해 투명화
+                # 최종 누적 마스크를 적용해 투명화 (원본 해상도에 적용되므로 화질 저하 없음!)
                 accumulated_mask = st.session_state.bg_masks[original_name]
                 new_alpha = alpha.copy()
                 new_alpha[accumulated_mask == 1] = 0
@@ -113,6 +115,7 @@ if uploaded_files:
                 preview_img = Image.alpha_composite(bg_checker, out_img)
                 st.image(preview_img, caption="💡 격자 부분 = 투명하게 지워진 영역", width="stretch")
                 
+                # 📥 다운로드 버튼 (축소되지 않은 진짜 고화질 원본 해상도 PNG 파일로 출력)
                 buf = io.BytesIO()
                 out_img.save(buf, format="PNG")
                 byte_im = buf.getvalue()
