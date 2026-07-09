@@ -29,7 +29,7 @@ if uploaded_files:
         st.markdown("---")
         st.subheader(f"작업 파일: {original_name}")
         
-        # 1. 원본 이미지 로드 (고화질 원본 해상도 유지)
+        # 1. 고화질 원본 이미지 로드 (해상도 손실 없음)
         image = Image.open(uploaded_file).convert("RGBA")
         img_array = np.array(image)
         h, w = img_array.shape[:2]
@@ -42,21 +42,21 @@ if uploaded_files:
         with col1:
             st.write("👇 투명하게 만들 곳들을 연속해서 클릭하세요.")
             
-            # 💡 [핵심 수정] 가로와 세로 최대 크기를 모두 400픽셀로 바운더리를 칩니다.
-            max_size = 400
+            # 💡 [핵심 수정] 세로 짤림을 막기 위해 가상 바운더리 크기를 280픽셀로 더 줄입니다.
+            # 세로가 긴 이미지도 이 제한 조건 덕분에 스크롤 없이 한눈에 쏙 들어오게 됩니다.
+            max_size = 280
             
-            # 원본 비율을 유지하면서 가로/세로 중 더 긴 쪽을 400에 맞춥니다.
             if w > max_size or h > max_size:
                 scale_ratio = min(max_size / w, max_size / h)
                 preview_w = int(w * scale_ratio)
                 preview_h = int(h * scale_ratio)
-                # 터치하는 뷰페이지용 이미지만 400px 박스 안으로 완벽히 가둡니다.
+                # 터치 뷰페이지용 이미지만 원본 비율 그대로 작게 리사이즈
                 preview_img_for_click = image.resize((preview_w, preview_h), Image.Resampling.LANCZOS)
             else:
                 scale_ratio = 1.0
                 preview_img_for_click = image
 
-            # 화면 짤림 없이 한눈에 들어오는 뷰에서 안전하게 터치 좌표 수집
+            # 화면 짤림 현상이 완전히 해결된 상태에서 터치 좌표 수집
             value = streamlit_image_coordinates(preview_img_for_click, key=f"click_{original_name}")
             
         if value is not None:
@@ -86,7 +86,7 @@ if uploaded_files:
                     actual_current_mask
                 )
                 
-                # 최종 누적 마스크를 적용해 투명화 (원본 해상도에 적용되므로 화질 저하 없음!)
+                # 최종 누적 마스크를 적용해 투명화 (원본 이미지 해상도에 직접 적용)
                 accumulated_mask = st.session_state.bg_masks[original_name]
                 new_alpha = alpha.copy()
                 new_alpha[accumulated_mask == 1] = 0
@@ -112,10 +112,17 @@ if uploaded_files:
                         if (i // grid_size + j // grid_size) % 2 == 0:
                             draw.rectangle([i, j, i + grid_size, j + grid_size], fill=(240, 240, 240, 255))
                 
-                preview_img = Image.alpha_composite(bg_checker, out_img)
-                st.image(preview_img, caption="💡 격자 부분 = 투명하게 지워진 영역", width="stretch")
+                # 오른쪽 결과창 이미지도 한눈에 보이게 세로 비율 맞춰 축소 출력
+                if ch_w > max_size or ch_h > max_size:
+                    out_scale = min(max_size / ch_w, max_size / ch_h)
+                    res_w, res_h = int(ch_w * out_scale), int(ch_h * out_scale)
+                    preview_img = Image.alpha_composite(bg_checker, out_img).resize((res_w, res_h), Image.Resampling.LANCZOS)
+                else:
+                    preview_img = Image.alpha_composite(bg_checker, out_img)
+                    
+                st.image(preview_img, caption="💡 격자 부분 = 투명하게 지워진 영역")
                 
-                # 📥 다운로드 버튼 (축소되지 않은 진짜 고화질 원본 해상도 PNG 파일로 출력)
+                # 📥 다운로드 버튼 (축소되지 않은 진짜 2.7MB 고화질 원본 해상도 PNG 파일로 출력)
                 buf = io.BytesIO()
                 out_img.save(buf, format="PNG")
                 byte_im = buf.getvalue()
