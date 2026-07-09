@@ -1,5 +1,5 @@
 import streamlit as st
-from rembg import remove, new_session  # new_session 추가
+from rembg import remove, new_session
 from PIL import Image
 import io
 import os
@@ -16,9 +16,8 @@ uploaded_files = st.file_uploader(
 if uploaded_files:
     st.write(f"총 {len(uploaded_files)}개의 파일이 업로드되었습니다.")
     
-    # 💡 [개선] 더 정교하고 세밀한 객체 인식을 위한 세션 생성
-    # 일반 u2net보다 디테일한 객체 분리에 강한 모델을 사용합니다.
-    session = new_session("isnet-general-use") 
+    # 일반 모델보다 객체 분할 및 디테일에 강한 u2net 기반의 세션 생성
+    session = new_session("u2net") 
     
     for uploaded_file in uploaded_files:
         original_name = uploaded_file.name
@@ -31,17 +30,17 @@ if uploaded_files:
         image = Image.open(uploaded_file)
         
         with st.spinner(f"{original_name} 배경 제거 중..."):
-            # 💡 [개ment] 배경 제거 옵션 디테일 조정
+            # 💡 하트처럼 색이 선명한 독립된 객체를 살리기 위한 세부 옵션 적용
             output_image = remove(
                 image,
                 session=session,
-                alpha_matting=True,          # 가장자리 및 독립 오브젝트 세밀화 활성화
-                alpha_matting_foreground_threshold=240, # 전경(살릴 부분) 기준 세부 조절
-                alpha_matting_background_threshold=10,  # 배경(지울 부분) 기준 세부 조절
-                alpha_matting_ero_size=10    # 세밀도 범위
+                alpha_matting=True,
+                alpha_matting_foreground_threshold=270, # 숫자를 높여 선명한 유색 영역을 전경으로 강하게 보호
+                alpha_matting_background_threshold=20,  # 완전히 투명해질 완전 배경(흰색 등)의 범위 지정
+                alpha_matting_ero_size=2                # 외곽선 주위를 더 촘촘하게 계산하여 하트가 잘리는 현상 방지
             )
         
-        # 이미지 다운로드 및 표시 로직 (기존과 동일)
+        # 이미지 다운로드 및 표시 로직
         buf = io.BytesIO()
         output_image.save(buf, format="PNG")
         byte_im = buf.getvalue()
