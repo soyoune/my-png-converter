@@ -41,16 +41,24 @@ if uploaded_files:
         
         with col1:
             st.write("👇 투명하게 만들 곳들을 연속해서 클릭하세요.")
-            # 💡 [핵심 수정] use_container_width=True를 추가하여 파일이 아무리 커도 
-            # 원본 화질 손실 없이 왼쪽 칸(col1) 크기에 맞춰 한눈에 보이도록 자동 축소합니다.
-            value = streamlit_image_coordinates(
-                image, 
-                key=f"click_{original_name}",
-                use_container_width=True
+            
+            # 💡 [핵심 수정] 에러를 일으키던 옵션을 제거하고, CSS를 주입해 이미지가 화면 칸을 탈출하지 못하도록 강제 고정합니다.
+            st.markdown(
+                """
+                <style>
+                div[data-testid="stHorizontalBlock"] img {
+                    max-width: 100% !important;
+                    height: auto !important;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True
             )
             
+            # 안전한 기본 호출 방식으로 롤백하여 TypeError를 완벽히 제거합니다.
+            value = streamlit_image_coordinates(image, key=f"click_{original_name}")
+            
         if value is not None:
-            # 💡 축소된 화면에서 클릭하더라도 원본 이미지의 정확한 좌표로 자동 변환됩니다.
             x, y = int(value["x"]), int(value["y"])
             
             # 좌표가 원본 이미지 범위를 벗어나는 것 방지
