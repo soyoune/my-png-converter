@@ -9,6 +9,22 @@ import cv2
 st.title("🎯 스마트 배경 및 그림자 제거기")
 st.write("이미지에서 **지우고 싶은 부분(배경, 그림자 등)을 두세 번 반복해서 터치(클릭)**해 보세요!")
 
+# 💡 [핵심 추가] 왼쪽 클릭 이미지 영역에 마우스를 올렸을 때 커서를 십자가(crosshair) 모양으로 바꾸는 CSS
+st.markdown(
+    """
+    <style>
+    /* 클릭 컴포넌트 내부의 이미지와 주변 영역에 정밀 십자가 커서 적용 */
+    div[data-testid="stHorizontalBlock"] iframe, 
+    div[data-testid="stHorizontalBlock"] img,
+    .stImageCoordinates, 
+    img {
+        cursor: crosshair !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 uploaded_files = st.file_uploader(
     "이미지를 선택하세요...", 
     type=["jpg", "jpeg", "png", "webp"], 
@@ -29,7 +45,7 @@ if uploaded_files:
         st.markdown("---")
         st.subheader(f"작업 파일: {original_name}")
         
-        # 1. 고화질 원본 이미지 로드 (해상도 손실 없음)
+        # 1. 고화질 원본 이미지 로드
         image = Image.open(uploaded_file).convert("RGBA")
         img_array = np.array(image)
         h, w = img_array.shape[:2]
@@ -42,25 +58,23 @@ if uploaded_files:
         with col1:
             st.write("👇 투명하게 만들 곳들을 연속해서 클릭하세요.")
             
-            # 💡 [핵심 수정] 세로 짤림을 막기 위해 가상 바운더리 크기를 280픽셀로 더 줄입니다.
-            # 세로가 긴 이미지도 이 제한 조건 덕분에 스크롤 없이 한눈에 쏙 들어오게 됩니다.
+            # 세로 잘림을 방지하기 위한 크기 제한 (280px)
             max_size = 280
             
             if w > max_size or h > max_size:
                 scale_ratio = min(max_size / w, max_size / h)
                 preview_w = int(w * scale_ratio)
                 preview_h = int(h * scale_ratio)
-                # 터치 뷰페이지용 이미지만 원본 비율 그대로 작게 리사이즈
                 preview_img_for_click = image.resize((preview_w, preview_h), Image.Resampling.LANCZOS)
             else:
                 scale_ratio = 1.0
                 preview_img_for_click = image
 
-            # 화면 짤림 현상이 완전히 해결된 상태에서 터치 좌표 수집
+            # 이제 이 이미지 위에 마우스를 올리면 일반 화살표가 아닌 십자가(+) 커서가 뜹니다.
             value = streamlit_image_coordinates(preview_img_for_click, key=f"click_{original_name}")
             
         if value is not None:
-            # 💡 축소 화면의 좌표를 원본 고해상도 좌표로 정확하게 역계산(매핑)
+            # 축소 화면의 좌표를 원본 고해상도 좌표로 정확하게 역계산
             x = int(int(value["x"]) / scale_ratio)
             y = int(int(value["y"]) / scale_ratio)
             
@@ -86,7 +100,7 @@ if uploaded_files:
                     actual_current_mask
                 )
                 
-                # 최종 누적 마스크를 적용해 투명화 (원본 이미지 해상도에 직접 적용)
+                # 최종 누적 마스크를 적용해 투명화
                 accumulated_mask = st.session_state.bg_masks[original_name]
                 new_alpha = alpha.copy()
                 new_alpha[accumulated_mask == 1] = 0
@@ -101,7 +115,6 @@ if uploaded_files:
                 st.write("✨ 결과 이미지 (여러 번 터치 누적 적용 중)")
                 out_img = st.session_state.processed_images[original_name]
                 
-                # 투명도 확인을 위한 격자무늬 배경 생성
                 bg_checker = Image.new("RGBA", out_img.size, (255, 255, 255, 255))
                 ch_w, ch_h = out_img.size
                 grid_size = 16
@@ -112,7 +125,6 @@ if uploaded_files:
                         if (i // grid_size + j // grid_size) % 2 == 0:
                             draw.rectangle([i, j, i + grid_size, j + grid_size], fill=(240, 240, 240, 255))
                 
-                # 오른쪽 결과창 이미지도 한눈에 보이게 세로 비율 맞춰 축소 출력
                 if ch_w > max_size or ch_h > max_size:
                     out_scale = min(max_size / ch_w, max_size / ch_h)
                     res_w, res_h = int(ch_w * out_scale), int(ch_h * out_scale)
@@ -122,7 +134,6 @@ if uploaded_files:
                     
                 st.image(preview_img, caption="💡 격자 부분 = 투명하게 지워진 영역")
                 
-                # 📥 다운로드 버튼 (축소되지 않은 진짜 2.7MB 고화질 원본 해상도 PNG 파일로 출력)
                 buf = io.BytesIO()
                 out_img.save(buf, format="PNG")
                 byte_im = buf.getvalue()
