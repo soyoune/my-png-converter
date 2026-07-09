@@ -19,15 +19,16 @@ mode = st.radio(
 # 브러시 크기 조절
 brush_size = st.slider("🖌️ 복구 브러시 크기 조절", min_value=10, max_value=100, value=30, step=5)
 
-# 💡 [문법 오류 수정] 파이썬 f-string과 CSS/SVG 중괄호 충돌 문제를 중괄호 두 개({{, }})를 써서 완전히 해결했습니다.
+# 💡 [긴급 수정] f-string 대신 .format()을 사용하여 CSS 및 SVG 중괄호와의 충돌을 원천 차단했습니다.
+style_template = """
+<style>
+.stImageCoordinates, .stImageCoordinates img, img {{
+    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="{dw}" height="{dw}" viewBox="0 0 {dw} {dw}"><circle cx="{bs}" cy="{bs}" r="{r}" stroke="%23ff4b4b" stroke-width="1.5" fill="none" stroke-dasharray="3,3"/></svg>') {bs} {bs}, crosshair !important;
+}}
+</style>
+"""
 st.markdown(
-    f"""
-    <style>
-    .stImageCoordinates, .stImageCoordinates img, img {{
-        cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="{brush_size*2}" height="{brush_size*2}" viewBox="0 0 {brush_size*2} {brush_size*2}"><circle cx="{brush_size}" cy="{brush_size}" r="{brush_size-1}" stroke="%23ff4b4b" stroke-width="1.5" fill="none" stroke-dasharray="3,3"/></svg>') {brush_size} {brush_size}, crosshair !important;
-    }
-    </style>
-    """,
+    style_template.format(dw=brush_size * 2, bs=brush_size, r=brush_size - 1),
     unsafe_allow_html=True
 )
 
