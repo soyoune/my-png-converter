@@ -1,3 +1,4 @@
-streamlit
-rembg
-pillow
+streamlit==1.32.0
+rembg==2.0.53
+pillow==10.2.0
+onnxruntime-thin
