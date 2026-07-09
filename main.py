@@ -1,14 +1,13 @@
 import streamlit as st
 from PIL import Image
 import numpy as np
-import cv2
 import io
 import os
-# 이미지 클릭 좌표를 가져오기 위한 라이브러리
+# 이미지 클릭 좌표 수집 라이브러리 (이미 터미널에 설치하셨으므로 requirements.txt에만 추가)
 from streamlit_image_coordinates import streamlit_image_coordinates
 
-st.title("🎯 포인터 지정형 배경 제거기")
-st.write("이미지에서 **지우고 싶은 배경 부분(예: 흰 바탕)**을 마우스로 클릭하세요!")
+st.title("🎯 스마트 배경 및 그림자 제거기")
+st.write("이미지에서 **지우고 싶은 배경이나 그림자 부분(예: 흰 바탕)**을 한 곳만 클릭하세요!")
 
 uploaded_files = st.file_uploader(
     "이미지를 선택하세요...", 
@@ -36,44 +35,59 @@ if uploaded_files:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.write("👇 지울 배경 곳을 클릭하세요.")
-            # 💡 사용자가 이미지를 클릭하면 해당 좌표(x, y)를 반환합니다.
+            st.write("👇 지울 배경/그림자 한 곳을 클릭하세요.")
+            # 💡 사용자가 이미지를 클릭하면 좌표 수집
             value = streamlit_image_coordinates(image, key=f"click_{original_name}")
             
-        # 클릭이 발생했을 때 배경 제거 로직 작동
+        # 클릭이 발생했을 때 배경 및 그림자 제거 로직 작동
         if value is not None:
             x, y = value["x"], value["y"]
             
-            # OpenCV FloodFill 알고리즘 적용을 위해 BGR/RGB 분리
-            rgb = img_array[:, :, :3]
-            alpha = img_array[:, :, 3]
+            # 클릭한 지점의 R, G, B, A 색상값 가져오기
+            try:
+                # 사용자가 이미지 캔버스 바깥이나 경계를 클릭했을 때를 대비한 예외 처리
+                clicked_color = img_array[y, x] 
+            except IndexError:
+                st.warning("이미지 내부를 다시 정확히 클릭해 주세요.")
+                st.stop()
+                
+            c_r, c_g, c_b, c_a = clicked_color
             
-            # FloodFill을 위한 마스크 생성 (이미지보다 사방으로 2픽셀 더 커야 함)
-            h, w = rgb.shape[:2]
-            mask = np.zeros((h + 2, w + 2), np.uint8)
+            # 색상 제거 오차 범위 설정 (밝기 기준)
+            # 흰색 배경과 그림자를 함께 지우기 위해 범위를 대폭 넓혔습니다.
+            # 💡 조절 팁: 그림자가 덜 지워지면 값을 높이고, 캐릭터 내부가 지워지면 값을 낮추세요.
+            r_range = g_range = b_range = 50 
             
-            # 클릭한 지점과 비슷한 색상을 가진 연속된 영역을 찾아서 마스킹
-            # loDiff, upDiff 값(10)을 조절하여 오차 범위를 설정 가능
-            flooded = rgb.copy()
-            cv2.floodFill(flooded, mask, (x, y), (0, 0, 0), loDiff=(10, 10, 10), upDiff=(10, 10, 10))
+            # HSV 색공간 대신 RGB 채널별 범위를 지정하여 마스킹
+            # 클릭한 색상을 기준으로 하한/상한값 계산 (0~255 범위 준수)
+            lower_bound = np.array([
+                max(0, c_r - r_range),
+                max(0, c_g - g_range),
+                max(0, c_b - b_range),
+                0  # 알파 채널은 무관
+            ])
+            upper_bound = np.array([
+                min(255, c_r + r_range),
+                min(255, c_g + g_range),
+                min(255, c_b + b_range),
+                255
+            ])
             
-            # floodFill이 채워진 영역(마스크에서 1이 된 부분)을 투명하게 만듦
-            # 배경 제거된 마스크는 0번 행렬 기준 1부터 h+1까지
-            actual_mask = mask[1:h+1, 1:w+1]
+            # 💡 핵심 로직: 이미지 전체에서 클릭한 색상의 범위에 해당하는 모든 영역을 찾습니다.
+            mask = ((img_array >= lower_bound) & (img_array <= upper_bound)).all(axis=-1)
             
-            # 클릭된 배경 부분의 알파(투명도) 값을 0으로 변경
-            new_alpha = alpha.copy()
-            new_alpha[actual_mask == 1] = 0
+            # 찾은 영역(배경+그림자)의 알파(투명도) 값을 0으로 변경
+            new_img_array = img_array.copy()
+            new_img_array[mask, 3] = 0
             
             # 최종 투명 이미지 합성
-            output_array = np.dstack((rgb, new_alpha))
-            output_image = Image.fromarray(output_array)
+            output_image = Image.fromarray(new_img_array)
             st.session_state.processed_images[original_name] = output_image
 
-        # 결과 출력 및 다운로드
+        # 결과 출력 및 다운로드 (기존 코드와 동일)
         with col2:
             if original_name in st.session_state.processed_images:
-                st.write("✨ 결과 이미지 (선택 영역 투명화 완료)")
+                st.write("✨ 결과 이미지 (배경 및 그림자 투명화 완료)")
                 out_img = st.session_state.processed_images[original_name]
                 st.image(out_img, use_container_width=True)
                 
