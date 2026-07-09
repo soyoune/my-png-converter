@@ -29,7 +29,7 @@ if uploaded_files:
         st.markdown("---")
         st.subheader(f"작업 파일: {original_name}")
         
-        # 1. 원본 이미지 로드 (크기 손실 방지를 위해 원본 배열 유지)
+        # 1. 원본 이미지 로드 (고화질 원본 해상도 유지)
         image = Image.open(uploaded_file).convert("RGBA")
         img_array = np.array(image)
         h, w = img_array.shape[:2]
@@ -42,28 +42,28 @@ if uploaded_files:
         with col1:
             st.write("👇 투명하게 만들 곳들을 연속해서 클릭하세요.")
             
-            # 💡 [핵심 수정] 화면이 터지는 것을 막기 위해 '미리보기용 축소 이미지'를 만듭니다.
-            # 가로 폭을 최대 400픽셀로 제한하되, 비율을 유지합니다.
-            max_preview_width = 400
-            if w > max_preview_width:
-                scale_ratio = max_preview_width / w
-                preview_w = max_preview_width
+            # 💡 [핵심 수정] 가로와 세로 최대 크기를 모두 400픽셀로 바운더리를 칩니다.
+            max_size = 400
+            
+            # 원본 비율을 유지하면서 가로/세로 중 더 긴 쪽을 400에 맞춥니다.
+            if w > max_size or h > max_size:
+                scale_ratio = min(max_size / w, max_size / h)
+                preview_w = int(w * scale_ratio)
                 preview_h = int(h * scale_ratio)
-                # 터치 좌표 컴포넌트에는 이 축소된 이미지를 띄워 화면 밖으로 못 나가게 가둡니다.
+                # 터치하는 뷰페이지용 이미지만 400px 박스 안으로 완벽히 가둡니다.
                 preview_img_for_click = image.resize((preview_w, preview_h), Image.Resampling.LANCZOS)
             else:
                 scale_ratio = 1.0
                 preview_img_for_click = image
 
-            # 축소된 뷰페이지 이미지로 안전하게 좌표 수집
+            # 화면 짤림 없이 한눈에 들어오는 뷰에서 안전하게 터치 좌표 수집
             value = streamlit_image_coordinates(preview_img_for_click, key=f"click_{original_name}")
             
         if value is not None:
-            # 💡 축소 화면에서의 클릭 좌표를 실제 '원본 이미지의 고해상도 좌표'로 역계산(매핑)합니다.
+            # 💡 축소 화면의 좌표를 원본 고해상도 좌표로 정확하게 역계산(매핑)
             x = int(int(value["x"]) / scale_ratio)
             y = int(int(value["y"]) / scale_ratio)
             
-            # 계산된 좌표가 원본 범위 안에 있을 때만 연산 수행
             if 0 <= x < w and 0 <= y < h:
                 rgb = img_array[:, :, :3]
                 alpha = img_array[:, :, 3]
