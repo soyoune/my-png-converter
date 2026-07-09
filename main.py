@@ -95,25 +95,26 @@ if uploaded_files:
                 rgb = img_array[:, :, :3]
                 alpha = img_array[:, :, 3]
                 
+                # 💡 [모드별 동작 분기]
                 if "🔴" in mode:
-                    # 💡 [핵심 알고리즘 수정] 단순히 색상 차이만 보지 않고 그레이스케일 대비를 활용해 사람의 형태 윤곽(Gradient)을 보호합니다.
+                    # 💡 [핵심 알고리즘 수정] 경계 부분 색상 대비 분석 강화
+                    # 목 뒤 모자와 배경의 경계를 더 세밀하게 인식하기 위해
+                    # 그레이스케일 대비를 넘어 로컬 그라디언트를 분석합니다.
                     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
                     
-                    # 대비를 주어 인물과 배경의 경계선을 더 명확하게 시뮬레이션
-                    _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
+                    # 💡 모포로지 연산을 통해 경계선 주변의 디테일을 강화
+                    kernel = np.ones((3,3), np.uint8)
+                    gradient = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT, kernel)
+                    
+                    # 그라디언트 맵을 활용해 인물 경계선을 더 명확하게 시뮬레이션
+                    _, thresh = cv2.threshold(gradient, 20, 255, cv2.THRESH_BINARY) # 경계 임계값을 낮춰 미세한 디테일 포착
                     
                     current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
                     
-                    # 클릭한 지점의 색상 특성을 분석해 유연하게 floodFill 수행
                     flooded = rgb.copy()
-                    cv2.floodFill(
-                        flooded, 
-                        current_flood_mask, 
-                        (x, y), 
-                        (0, 0, 0), 
-                        loDiff=(3, 3, 3), # 살색/입술이 번지지 않도록 오차 범위를 극단적으로 정밀하게 제어
-                        upDiff=(3, 3, 3)
-                    )
+                    
+                    # 💡 [핵심 수정] 색상 허용 오차 범위를 아주 정밀하게 제어 (loDiff=(3,3,3))
+                    cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(3, 3, 3), upDiff=(3, 3, 3))
                     
                     actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
                     
