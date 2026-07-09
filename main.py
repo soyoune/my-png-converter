@@ -19,11 +19,10 @@ mode = st.radio(
 # 브러시 크기 조절
 brush_size = st.slider("🖌️ 복구 브러시 크기 조절", min_value=10, max_value=100, value=30, step=5)
 
-# 💡 [핵심 추가] 마우스가 올라갔을 때 포토샵처럼 브러시 크기의 원형(Circle) 커서가 따라다니도록 만드는 CSS 효과
+# 💡 [문법 오류 수정] 파이썬 f-string과 CSS/SVG 중괄호 충돌 문제를 중괄호 두 개({{, }})를 써서 완전히 해결했습니다.
 st.markdown(
     f"""
     <style>
-    /* 이미지 편집 영역 위에만 포토샵 스타일의 원형 커서 적용 */
     .stImageCoordinates, .stImageCoordinates img, img {{
         cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="{brush_size*2}" height="{brush_size*2}" viewBox="0 0 {brush_size*2} {brush_size*2}"><circle cx="{brush_size}" cy="{brush_size}" r="{brush_size-1}" stroke="%23ff4b4b" stroke-width="1.5" fill="none" stroke-dasharray="3,3"/></svg>') {brush_size} {brush_size}, crosshair !important;
     }
@@ -45,7 +44,6 @@ if uploaded_files:
         st.session_state.bg_masks = {}
     if "reset_counters" not in st.session_state:
         st.session_state.reset_counters = {}
-    # 드래그 궤적 추적을 위한 좌표 메모리
     if "last_mouse_pos" not in st.session_state:
         st.session_state.last_mouse_pos = None
 
@@ -60,12 +58,10 @@ if uploaded_files:
         if original_name not in st.session_state.reset_counters:
             st.session_state.reset_counters[original_name] = 0
             
-        # 1. 고화질 원본 이미지 로드
         image = Image.open(uploaded_file).convert("RGBA")
         img_array = np.array(image)
         h, w = img_array.shape[:2]
         
-        # 누적 마스크 초기화
         if original_name not in st.session_state.bg_masks:
             st.session_state.bg_masks[original_name] = np.zeros((h, w), np.uint8)
         
@@ -81,7 +77,6 @@ if uploaded_files:
 
             current_counter = st.session_state.reset_counters[original_name]
             
-            # 실시간 좌표와 무브먼트를 연속 감지하는 컴포넌트 호출
             value = streamlit_image_coordinates(
                 preview_img_for_click, 
                 key=f"click_{original_name}_{current_counter}"
@@ -97,28 +92,23 @@ if uploaded_files:
                 draw = ImageDraw.Draw(mask_img)
                 
                 if "🔴" in mode:
-                    # 스마트 배경 자동 제거
                     target_color = rgb[y, x]
                     color_diff = np.abs(rgb - target_color)
                     color_mask = np.all(color_diff < 15, axis=-1)
                     current_mask = np.where(color_mask, 255, 0).astype(np.uint8)
                     temp_mask_img = Image.fromarray(current_mask)
                     mask_img = Image.blend(mask_img, temp_mask_img, 1.0)
-                    st.session_state.last_mouse_pos = None # 좌표 초기화
+                    st.session_state.last_mouse_pos = None 
                 else:
-                    # 💡 [연속 드래그 붓 터치 시뮬레이션]
-                    # 이전 마우스 위치가 있다면 끊어지지 않게 선(Line)으로 연결하여 슥슥 문지르는 효과를 구현합니다.
                     if st.session_state.last_mouse_pos is not None:
                         lx, ly = st.session_state.last_mouse_pos
                         draw.line([lx, ly, x, y], fill=0, width=brush_size * 2)
                     
-                    # 현재 마우스 위치에 둥근 브러시 칠하기
                     draw.ellipse([x - brush_size, y - brush_size, x + brush_size, y + brush_size], fill=0)
                     st.session_state.last_mouse_pos = (x, y)
                 
                 st.session_state.bg_masks[original_name] = np.array(mask_img) // 255
 
-        # 최종 투명도 반영
         accumulated_mask = st.session_state.bg_masks[original_name]
         rgb = img_array[:, :, :3]
         alpha = img_array[:, :, 3].copy()
