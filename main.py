@@ -49,16 +49,26 @@ if uploaded_files:
             rgb = img_array[:, :, :3]
             alpha = img_array[:, :, 3]
             
-            # 💡 [수정] 오작동하던 깐깐한 경고 로직을 완전히 제거했습니다.
-            # 대신 FloodFill의 오차 범위를 아주 정밀하게 잡아 검은 선 침범을 원천 차단합니다.
+            # 💡 [핵심 개선] FloodFill을 실행하기 전에, 검은색 라인을 '절대 침범 불가 장벽'으로 사전 등록합니다.
+            # R, G, B 채널이 모두 110 이하인 어두운 영역(외곽선 및 경계선)을 찾습니다.
+            line_mask = (rgb[:, :, 0] < 110) & (rgb[:, :, 1] < 110) & (rgb[:, :, 2] < 110)
+            
+            # FloodFill용 기본 마스크 생성 (이미지 크기보다 사방으로 2픽셀 더 커야 함)
             current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
             
-            # loDiff와 upDiff를 2로 설정하여, 클릭한 색상과 거의 일치하는 밝은 배경만 추적합니다.
-            # 이 상태로 전진하다가 검은색 외곽선(어두운 색)을 만나면 선을 넘지 않고 멈춥니다.
-            flooded = rgb.copy()
-            cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(2, 2, 2), upDiff=(2, 2, 2))
+            # 💡 찾은 검은색 외곽선 영역을 FloodFill 마스크에 미리 '1(벽)'로 채워 가두어 버립니다.
+            # 이렇게 하면 알고리즘이 퍼져나가다가 이 벽을 만나는 순간 절대 넘어가지 못합니다.
+            current_flood_mask[1:h+1, 1:w+1][line_mask] = 1
             
+            # 준비된 장벽 마스크를 가지고 FloodFill 수행 (이미 벽이 쳐져 있으므로 안심하고 범위를 조금 넓혀 잔상을 지웁니다)
+            flooded = rgb.copy()
+            cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(10, 10, 10), upDiff=(10, 10, 10))
+            
+            # 실제 이미지 크기에 맞는 영역만 추출
             actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
+            
+            # 단, 처음에 벽으로 세워둔 '진짜 검은 선' 자체는 지워지면 안 되므로 마스크에서 다시 제외해 줍니다.
+            actual_current_mask[line_mask] = 0
             
             # 누적 마스크 합치기 (여러 번 터치 가능)
             st.session_state.bg_masks[original_name] = cv2.bitwise_or(
