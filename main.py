@@ -41,49 +41,49 @@ if uploaded_files:
         
         with col1:
             st.write("👇 투명하게 만들 곳들을 연속해서 클릭하세요.")
-            value = streamlit_image_coordinates(image, key=f"click_{original_name}")
-            
-        if value is not None:
-            x, y = int(value["x"]), int(value["y"])
-            
-            rgb = img_array[:, :, :3]
-            alpha = img_array[:, :, 3]
-            
-            # 💡 [핵심 개선] FloodFill을 실행하기 전에, 검은색 라인을 '절대 침범 불가 장벽'으로 사전 등록합니다.
-            # R, G, B 채널이 모두 110 이하인 어두운 영역(외곽선 및 경계선)을 찾습니다.
-            line_mask = (rgb[:, :, 0] < 110) & (rgb[:, :, 1] < 110) & (rgb[:, :, 2] < 110)
-            
-            # FloodFill용 기본 마스크 생성 (이미지 크기보다 사방으로 2픽셀 더 커야 함)
-            current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
-            
-            # 💡 찾은 검은색 외곽선 영역을 FloodFill 마스크에 미리 '1(벽)'로 채워 가두어 버립니다.
-            # 이렇게 하면 알고리즘이 퍼져나가다가 이 벽을 만나는 순간 절대 넘어가지 못합니다.
-            current_flood_mask[1:h+1, 1:w+1][line_mask] = 1
-            
-            # 준비된 장벽 마스크를 가지고 FloodFill 수행 (이미 벽이 쳐져 있으므로 안심하고 범위를 조금 넓혀 잔상을 지웁니다)
-            flooded = rgb.copy()
-            cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(10, 10, 10), upDiff=(10, 10, 10))
-            
-            # 실제 이미지 크기에 맞는 영역만 추출
-            actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
-            
-            # 단, 처음에 벽으로 세워둔 '진짜 검은 선' 자체는 지워지면 안 되므로 마스크에서 다시 제외해 줍니다.
-            actual_current_mask[line_mask] = 0
-            
-            # 누적 마스크 합치기 (여러 번 터치 가능)
-            st.session_state.bg_masks[original_name] = cv2.bitwise_or(
-                st.session_state.bg_masks[original_name], 
-                actual_current_mask
+            # 💡 [핵심 수정] use_container_width=True를 추가하여 파일이 아무리 커도 
+            # 원본 화질 손실 없이 왼쪽 칸(col1) 크기에 맞춰 한눈에 보이도록 자동 축소합니다.
+            value = streamlit_image_coordinates(
+                image, 
+                key=f"click_{original_name}",
+                use_container_width=True
             )
             
-            # 최종 누적 마스크를 적용해 투명화
-            accumulated_mask = st.session_state.bg_masks[original_name]
-            new_alpha = alpha.copy()
-            new_alpha[accumulated_mask == 1] = 0
+        if value is not None:
+            # 💡 축소된 화면에서 클릭하더라도 원본 이미지의 정확한 좌표로 자동 변환됩니다.
+            x, y = int(value["x"]), int(value["y"])
             
-            output_array = np.dstack((rgb, new_alpha))
-            output_image = Image.fromarray(output_array)
-            st.session_state.processed_images[original_name] = output_image
+            # 좌표가 원본 이미지 범위를 벗어나는 것 방지
+            if 0 <= x < w and 0 <= y < h:
+                rgb = img_array[:, :, :3]
+                alpha = img_array[:, :, 3]
+                
+                # 검은색 라인 물리 장벽 구축
+                line_mask = (rgb[:, :, 0] < 110) & (rgb[:, :, 1] < 110) & (rgb[:, :, 2] < 110)
+                
+                current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
+                current_flood_mask[1:h+1, 1:w+1][line_mask] = 1
+                
+                flooded = rgb.copy()
+                cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(10, 10, 10), upDiff=(10, 10, 10))
+                
+                actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
+                actual_current_mask[line_mask] = 0
+                
+                # 누적 마스크 합치기
+                st.session_state.bg_masks[original_name] = cv2.bitwise_or(
+                    st.session_state.bg_masks[original_name], 
+                    actual_current_mask
+                )
+                
+                # 최종 누적 마스크를 적용해 투명화
+                accumulated_mask = st.session_state.bg_masks[original_name]
+                new_alpha = alpha.copy()
+                new_alpha[accumulated_mask == 1] = 0
+                
+                output_array = np.dstack((rgb, new_alpha))
+                output_image = Image.fromarray(output_array)
+                st.session_state.processed_images[original_name] = output_image
 
         # 결과 출력 및 다운로드 영역
         with col2:
