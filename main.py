@@ -16,7 +16,6 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    # 💡 세션 상태 초기화: 변환된 이미지와 누적 마스크를 저장할 공간 생성
     if "processed_images" not in st.session_state:
         st.session_state.processed_images = {}
     if "bg_masks" not in st.session_state:
@@ -35,7 +34,6 @@ if uploaded_files:
         img_array = np.array(image)
         h, w = img_array.shape[:2]
         
-        # 해당 파일의 누적 마스크가 없다면 새로 생성 (기본값은 모두 0)
         if original_name not in st.session_state.bg_masks:
             st.session_state.bg_masks[original_name] = np.zeros((h, w), np.uint8)
         
@@ -45,38 +43,44 @@ if uploaded_files:
             st.write("👇 투명하게 만들 곳들을 연속해서 클릭하세요.")
             value = streamlit_image_coordinates(image, key=f"click_{original_name}")
             
-        # 클릭이 발생할 때마다 누적해서 투명화 처리
         if value is not None:
             x, y = int(value["x"]), int(value["y"])
             
             rgb = img_array[:, :, :3]
             alpha = img_array[:, :, 3]
             
-            # 현재 클릭에 대한 FloodFill 마스크 생성 (기존보다 사방 2픽셀 커야 함)
-            current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
+            # 클릭한 지점의 정확한 색상 가져오기
+            c_r, c_g, c_b = int(rgb[y, x, 0]), int(rgb[y, x, 1]), int(rgb[y, x, 2])
             
-            # 그림자 오차 범위를 7로 설정 (적당히 부드럽게 잡히도록 조절)
-            flooded = rgb.copy()
-            cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(7, 7, 7), upDiff=(7, 7, 7))
-            
-            # 실제 이미지 크기에 맞는 마스크만 추출 (1은 채워진 배경, 0은 캐릭터)
-            actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
-            
-            # 💡 [핵심] 기존 누적 마스크에 이번에 새로 클릭해서 찾은 마스크를 합칩니다 (OR 연산)
-            st.session_state.bg_masks[original_name] = cv2.bitwise_or(
-                st.session_state.bg_masks[original_name], 
-                actual_current_mask
-            )
-            
-            # 최종 누적 마스크가 1인 곳(배경 및 터치한 곳들)의 알파 채널을 0(투명)으로 변경
-            accumulated_mask = st.session_state.bg_masks[original_name]
-            new_alpha = alpha.copy()
-            new_alpha[accumulated_mask == 1] = 0
-            
-            # 최종 투명 이미지 합성 및 세션 저장
-            output_array = np.dstack((rgb, new_alpha))
-            output_image = Image.fromarray(output_array)
-            st.session_state.processed_images[original_name] = output_image
+            # 💡 [핵심 개선 1] 어두운 선(검은색 라인)을 클릭했을 때는 작동하지 않도록 방어 코드 추가
+            # 캐릭터의 외곽선(RGB 값이 모두 80 이하로 어두운 경우)을 클릭하면 무시합니다.
+            if c_r < 80 and c_g < 80 and c_b < 80:
+                st.warning("캐릭터의 외곽선(검은 선)이 선택되었습니다. 배경 영역을 다시 클릭해 주세요!")
+            else:
+                current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
+                
+                # 💡 [핵심 개선 2] 오차 범위를 아주 정밀하게 좁힘 (loDiff=3, upDiff=3)
+                # 이 수치를 낮추면 클릭한 밝은 배경만 지우고, 조금이라도 어두워지는 검은색 외곽선 근처에서는 
+                # 탐색을 딱 멈추기 때문에 선이 파먹히는 현상을 완벽하게 막아줍니다.
+                flooded = rgb.copy()
+                cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(3, 3, 3), upDiff=(3, 3, 3))
+                
+                actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
+                
+                # 누적 마스크 합치기
+                st.session_state.bg_masks[original_name] = cv2.bitwise_or(
+                    st.session_state.bg_masks[original_name], 
+                    actual_current_mask
+                )
+                
+                # 최종 누적 마스크를 적용해 투명화
+                accumulated_mask = st.session_state.bg_masks[original_name]
+                new_alpha = alpha.copy()
+                new_alpha[accumulated_mask == 1] = 0
+                
+                output_array = np.dstack((rgb, new_alpha))
+                output_image = Image.fromarray(output_array)
+                st.session_state.processed_images[original_name] = output_image
 
         # 결과 출력 및 다운로드 영역
         with col2:
@@ -95,13 +99,9 @@ if uploaded_files:
                         if (i // grid_size + j // grid_size) % 2 == 0:
                             draw.rectangle([i, j, i + grid_size, j + grid_size], fill=(240, 240, 240, 255))
                 
-                # 격자 배경 위에 결과물 합성
                 preview_img = Image.alpha_composite(bg_checker, out_img)
-                
-                # 화면 표시
                 st.image(preview_img, caption="💡 격자 부분 = 투명하게 지워진 영역", width="stretch")
                 
-                # 다운로드 파일 준비
                 buf = io.BytesIO()
                 out_img.save(buf, format="PNG")
                 byte_im = buf.getvalue()
@@ -114,7 +114,6 @@ if uploaded_files:
                     key=f"dl_{original_name}"
                 )
                 
-                # 🔄 다시 처음부터 지우고 싶을 때를 위한 리셋 버튼
                 if st.button("초기화 (다시 지우기)", key=f"reset_{original_name}"):
                     del st.session_state.processed_images[original_name]
                     del st.session_state.bg_masks[original_name]
