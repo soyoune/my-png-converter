@@ -7,7 +7,7 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 import cv2 
 
 st.title("🎯 스마트 배경 및 그림자 제거기")
-st.write("이미지에서 지우고 싶은 부분을 터치하여 지우거나, 잘못 지워진 부분을 조금씩 정밀하게 복구해 보세요!")
+st.write("인물과 배경색이 비슷해도 안전하게 지울 수 있도록 정밀도를 극대화했습니다.")
 
 # 이미지 영역 마우스 오버 시 정밀 십자가 커서(+)로 변경하는 CSS
 st.markdown(
@@ -24,12 +24,15 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 작업 모드 선택
+# 💡 더 세밀한 편집을 위한 3가지 모드 세분화
 mode = st.radio(
     "👉 작업 모드를 선택하세요:",
-    ["🔴 터치하여 투명하게 지우기 (넓은 영역)", "🟢 잘못 지워진 곳 조금씩 채우기 (정밀 복구)"],
+    ["🔴 터치하여 배경 지우기 (번짐 차단 모드)", "🧹 마우스 주변 조금씩 지우기 (지우개)", "🟢 잘못 지워진 곳 조금씩 채우기 (복구 브러시)"],
     horizontal=True
 )
+
+# 💡 사용자가 원하는 브러시 크기를 조절할 수 있는 슬라이더 추가
+brush_size = st.slider("🖌️ 지우개 / 복구 브러시 크기 조절", min_value=5, max_value=50, value=15, step=5)
 
 uploaded_files = st.file_uploader(
     "이미지를 선택하세요...", 
@@ -67,7 +70,7 @@ if uploaded_files:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.write("👇 이미지 위의 대상을 조준해서 클릭하세요.")
+            st.write("👇 이미지 위를 콕콕 터치하여 편집하세요.")
             
             # 세로 잘림 방지 뷰페이지 스케일링 (280px 제한)
             max_size = 280
@@ -95,39 +98,33 @@ if uploaded_files:
                 rgb = img_array[:, :, :3]
                 alpha = img_array[:, :, 3]
                 
-                # 💡 [모드별 동작 분기]
+                # 💡 선택한 모드에 따른 동작 제어
                 if "🔴" in mode:
-                    # 💡 [핵심 알고리즘 수정] 경계 부분 색상 대비 분석 강화
-                    # 목 뒤 모자와 배경의 경계를 더 세밀하게 인식하기 위해
-                    # 그레이스케일 대비를 넘어 로컬 그라디언트를 분석합니다.
-                    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-                    
-                    # 💡 모포로지 연산을 통해 경계선 주변의 디테일을 강화
-                    kernel = np.ones((3,3), np.uint8)
-                    gradient = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT, kernel)
-                    
-                    # 그라디언트 맵을 활용해 인물 경계선을 더 명확하게 시뮬레이션
-                    _, thresh = cv2.threshold(gradient, 20, 255, cv2.THRESH_BINARY) # 경계 임계값을 낮춰 미세한 디테일 포착
-                    
+                    # 번짐 차단 모드: 오차 허용치를 극단적인 (1, 1, 1)로 제한하여
+                    # 완벽하게 똑같은 색상의 배경만 지우고 인물 경계에서 무조건 멈추게 만듭니다.
                     current_flood_mask = np.zeros((h + 2, w + 2), np.uint8)
-                    
                     flooded = rgb.copy()
                     
-                    # 💡 [핵심 수정] 색상 허용 오차 범위를 아주 정밀하게 제어 (loDiff=(3,3,3))
-                    cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(3, 3, 3), upDiff=(3, 3, 3))
-                    
+                    cv2.floodFill(flooded, current_flood_mask, (x, y), (0, 0, 0), loDiff=(1, 1, 1), upDiff=(1, 1, 1))
                     actual_current_mask = current_flood_mask[1:h+1, 1:w+1]
                     
-                    # 지우기 마스크 누적 합치기
                     st.session_state.bg_masks[original_name] = cv2.bitwise_or(
                         st.session_state.bg_masks[original_name], 
                         actual_current_mask
                     )
-                else:
-                    # 🟢 채우기(정밀 복구) 방식: 브러시 반경만큼만 원래대로 복원
-                    brush_radius = 15
+                elif "🧹" in mode:
+                    # 수동 지우개 모드: 클릭한 부분 주변을 슬라이더 크기만큼 강제로 지웁니다.
                     brush_mask = np.zeros((h, w), np.uint8)
-                    cv2.circle(brush_mask, (x, y), brush_radius, 1, -1)
+                    cv2.circle(brush_mask, (x, y), brush_size, 1, -1)
+                    
+                    st.session_state.bg_masks[original_name] = cv2.bitwise_or(
+                        st.session_state.bg_masks[original_name], 
+                        brush_mask
+                    )
+                else:
+                    # 수동 복구 브러시 모드: 목 뒤 모자나 얼굴 등 날아간 부위를 조준해 터치하면 그 부분만 원래대로 채웁니다.
+                    brush_mask = np.zeros((h, w), np.uint8)
+                    cv2.circle(brush_mask, (x, y), brush_size, 1, -1)
                     
                     st.session_state.bg_masks[original_name] = cv2.bitwise_and(
                         st.session_state.bg_masks[original_name], 
