@@ -39,11 +39,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="title-text">AI Photoroom Remover</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle-text">서버 전송 없이 사용자의 브라우저(WebGPU/WASM)에서 직접 실행되는 100% 무제한 무료 누끼 제거기입니다.</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle-text">서버 전송 없이 사용자의 브라우저에서 직접 실행되는 100% 무제한 무료 누끼 제거기입니다.</div>', unsafe_allow_html=True)
 
-# 2. 고성능 오픈소스 RMBG-1.4 모델이 적용된 웹 뷰어 삽입 (Xenova의 공식 오픈소스 샌드박스)
-# 내 서버 자원을 쓰지 않고, 순수 브라우저 연산으로 동작해 트래픽 과부하 및 404 에러를 원천 차단합니다.
-src_url = "https://xenova-remove-background-webgpu.hf.space"
+# 2. 안정적으로 가동 중인 Hugging Face의 또 다른 공식 무료 WASM 엔진 사용
+src_url = "https://xenova-remove-background-web.hf.space"
 
 st.markdown('<div class="app-container">', unsafe_allow_html=True)
 st.components.v1.iframe(src=src_url, height=750, scrolling=True)
