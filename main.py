@@ -1,13 +1,13 @@
 import streamlit as st
 
-# 1. 포토룸 스타일 와이드 레이아웃 설정
+# 1. 페이지 레이아웃 설정
 st.set_page_config(
-    page_title="AI Photoroom - Unlimited Edition",
+    page_title="AI Photoroom - Unlimited Client Edition",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Streamlit 기본 여백 및 헤더 숨기기
+# 기본 여백 제거 및 다크 모드 스타일링
 st.markdown("""
     <style>
         #MainMenu {visibility: hidden;}
@@ -18,15 +18,45 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 2. 브라우저 내장형 고성능 AI 세그멘테이션 엔진 (HTML5 + WebMatting JS)
-# 서버 통신과 제한이 전혀 없는 100% 로컬 무제한 방식입니다.
-unlimited_photoroom_html = """
+# 2. 브라우저 자체 WebAssembly 가속 기반 AI 엔진 탑재 (Transformers.js)
+unlimited_ai_html = """
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Unlimited AI Photoroom</title>
+    <!-- 고성능 브라우저 AI 구동을 위한 라이브러리 로드 -->
+    <script type="module">
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.16.1';
+        env.allowLocalModels = false;
+        
+        window.runAI = async function(imageSrc) {
+            try {
+                document.getElementById('status').innerText = "⚡ 내 브라우저에서 AI 모델 초기화 중... (최초 1회만 약 5~10초 소요)";
+                
+                // 포토룸 엔진 rmbg-1.4 모델 로드
+                const upscaler = await pipeline('image-segmentation', 'Xenova/rmbg-1.4');
+                
+                document.getElementById('status').innerText = "✨ 캐릭터 실루엣 정밀 도려내는 중...";
+                const output = await upscaler(imageSrc);
+                
+                // 결과 이미지 렌더링 및 다운로드 링크 활성화
+                const resultImg = document.getElementById('resultImg');
+                resultImg.src = output.toDataURL();
+                
+                const downloadBtn = document.getElementById('downloadBtn');
+                downloadBtn.href = output.toDataURL();
+                downloadBtn.style.display = 'block';
+                
+                document.getElementById('status').innerText = "✅ 누끼 제거 완료!";
+                document.getElementById('previewArea').style.display = 'grid';
+            } catch (err) {
+                document.getElementById('status').innerText = "❌ AI 실행 오류: " + err.message;
+                console.error(err);
+            }
+        };
+    </script>
     <style>
         body {
             background-color: #121214;
@@ -43,25 +73,25 @@ unlimited_photoroom_html = """
             margin-bottom: 25px;
         }
         h1 {
-            font-size: 32px;
+            font-size: 28px;
             font-weight: 800;
             background: linear-gradient(45deg, #ff007f, #7f00ff);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin: 0 0 10px 0;
+            margin: 0 0 8px 0;
         }
         p {
             color: #8a8a93;
-            font-size: 14px;
+            font-size: 13px;
             margin: 0;
         }
         .container {
             width: 100%;
-            max-width: 950px;
+            max-width: 900px;
             background: #1a1a1e;
             border: 1px solid #2a2a30;
             border-radius: 16px;
-            padding: 30px;
+            padding: 35px;
             box-shadow: 0 8px 30px rgba(0,0,0,0.5);
             box-sizing: border-box;
         }
@@ -73,21 +103,23 @@ unlimited_photoroom_html = """
             cursor: pointer;
             transition: all 0.3s ease;
             background: #151518;
-            margin-bottom: 25px;
         }
         .dropzone:hover {
             border-color: #ff007f;
             background: #1b1319;
         }
-        .dropzone p {
-            font-size: 16px;
-            color: #e4e4e7;
+        .status-bar {
+            margin-top: 15px;
+            text-align: center;
+            font-weight: bold;
+            color: #ff007f;
+            font-size: 14px;
         }
         .preview-area {
             display: none;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
-            margin-top: 10px;
+            margin-top: 30px;
         }
         .preview-box {
             background: #202024;
@@ -96,16 +128,10 @@ unlimited_photoroom_html = """
             text-align: center;
             border: 1px solid #2a2a30;
         }
-        .preview-box h3 {
-            margin-top: 0;
-            margin-bottom: 15px;
-            font-size: 16px;
-            color: #a1a1aa;
-        }
         .img-wrapper {
             position: relative;
             width: 100%;
-            height: 400px;
+            height: 350px;
             border-radius: 8px;
             overflow: hidden;
             background-color: #121214;
@@ -116,21 +142,96 @@ unlimited_photoroom_html = """
         .transparent-bg {
             background-image: linear-gradient(45deg, #2a2a30 25%, transparent 25%), linear-gradient(-45deg, #2a2a30 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #2a2a30 75%), linear-gradient(-45deg, transparent 75%, #2a2a30 75%);
             background-size: 20px 20px;
-            background-position: 0 0, 0 10px, 10px -10px, -10px 아하, 클라우드플레어처럼 매일 리셋되는 개수 제한마저 아예 없이 **"진짜 완전 무제한"**으로 누끼를 따고 싶으시군요! 
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+        img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .btn-download {
+            display: none;
+            width: 100%;
+            padding: 15px;
+            margin-top: 25px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(45deg, #ff007f, #7f00ff);
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            box-sizing: border-box;
+        }
+        .btn-download:hover {
+            transform: scale(1.01);
+            box-shadow: 0 0 20px rgba(255, 0, 127, 0.4);
+        }
+    </style>
+</head>
+<body>
 
-컴퓨터 그래픽스 고전 알고리즘(`GrabCut`)은 복잡한 마킹을 수동으로 그려야 해서 불편했고, AI 모델은 서버 성능 제한과 API 제한에 걸려 난감하셨을 텐데, 딱 맞는 최후의 방법이 있습니다.
+    <div class="header">
+        <h1>AI Photoroom - Unlimited Edition</h1>
+        <p>서버 트래픽이나 API 개수 제한 없이 사용자의 브라우저 성능으로 영원히 무제한 구동됩니다.</p>
+    </div>
 
-바로 **사용자의 웹 브라우저 자체 엔진(WebAssembly 및 ONNX Runtime Web)을 활용하여, 컴퓨터나 스마트폰의 자체 연산 장치(CPU/GPU)로 딥러닝 AI를 돌리는 방식**입니다.
+    <div class="container">
+        <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+            <p>📥 여기에 이미지를 끌어다 놓거나 클릭하여 업로드하세요</p>
+            <p style="font-size: 11px; color: #71717a; margin-top: 5px;">내 컴퓨터 안에서 실행되므로 외부 데이터가 유출되지 않습니다</p>
+            <input type="file" id="fileInput" accept="image/*" style="display: none">
+        </div>
 
-이 방식은 내 컴퓨터의 성능을 빌려 내 브라우저 안에서 AI를 직접 구동하기 때문에:
-1. **완전 무제한:** 외부 API 서버를 쓰지 않으므로 평생 몇 만 장을 돌려도 제한이 없고 비용도 0원입니다.
-2. **개인 정보 보호:** 이미지가 외부 서버로 전송되지 않고 내 기기 안에서만 처리됩니다.
-3. **포차코 얼굴 보존:** 고성능 AI 모델(`RMBG-1.4`)을 브라우저에 가볍게 얹어 돌리기 때문에 포차코의 흰색 얼굴도 완벽하게 살아납니다.
+        <div class="status-bar" id="status">파일을 올려주시면 로컬 인공지능이 즉시 활성화됩니다.</div>
 
----
+        <div class="preview-area" id="previewArea">
+            <div class="preview-box">
+                <p style="color: #a1a1aa; font-weight: bold; margin-bottom: 10px;">📷 원본 이미지</p>
+                <div class="img-wrapper">
+                    <img id="originalImg" src="" alt="Original">
+                </div>
+            </div>
+            <div class="preview-box">
+                <p style="color: #a1a1aa; font-weight: bold; margin-bottom: 10px;">✨ 배경 제거 완료</p>
+                <div class="img-wrapper transparent-bg">
+                    <img id="resultImg" src="" alt="Result">
+                </div>
+            </div>
+        </div>
 
-### 🛠️ 1. `requirements.txt` (완전 초경량화)
-서버에서 무거운 파이썬 AI 패키지를 설치하다가 에러가 나는 것을 완벽하게 방지하기 위해 깃허브의 **`requirements.txt`**를 아래 딱 한 줄로만 설정해 주세요. 
+        <a id="downloadBtn" class="btn-download" download="photoroom_unlimited.png">📥 배경 없는 고화질 PNG 다운로드</a>
+    </div>
 
-```text
-streamlit
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const originalImg = document.getElementById('originalImg');
+        const status = document.getElementById('status');
+        const previewArea = document.getElementById('previewArea');
+
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            status.innerText = "⏳ 이미지 파일을 분석하는 중...";
+            previewArea.style.display = 'none';
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const imageSrc = event.target.result;
+                originalImg.src = imageSrc;
+                previewArea.style.display = 'grid';
+                
+                // 브라우저 백엔드 AI 모듈 실행
+                window.runAI(imageSrc);
+            };
+            reader.readAsDataURL(file);
+        });
+    </script>
+</body>
+</html>
+"""
+
+st.components.v1.html(unlimited_ai_html, height=850, scrolling=False)
