@@ -1,15 +1,16 @@
 import streamlit as st
 from PIL import Image
+import requests
 import io
 
 # 1. 포토룸 스타일의 고급 다크 테마 설정
 st.set_page_config(
-    page_title="AI Photoroom Background Remover",
+    page_title="AI Photoroom - Pochacco Safe Edition",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# UI 커스텀 스타일링
+# UI 커스텀 스타일링 (포토룸 스타일 테마)
 st.markdown("""
     <style>
         #MainMenu {visibility: hidden;}
@@ -31,6 +32,7 @@ st.markdown("""
             color: #8a8a93;
             margin-bottom: 30px;
         }
+        /* 포토룸 스타일 다운로드 버튼 */
         .stDownloadButton>button {
             background: linear-gradient(45deg, #ff007f, #7f00ff) !important;
             color: white !important;
@@ -48,9 +50,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="title-text">AI Photoroom Remover</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle-text">형태 인지 딥러닝 모델로 캐릭터의 내부 흰색은 지키고 배경만 말끔히 제거합니다.</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle-text">Cloudflare AI 엔진을 거쳐 포차코 얼굴은 지키고 바깥 배경만 1초 만에 분리합니다.</div>', unsafe_allow_html=True)
 
-# 2. 파일 업로더 생성
+# ⚠️ [필수 작성] 발급받으신 클라우드플레어 정보를 아래에 넣어주세요!
+CLOUDFLARE_ACCOUNT_ID = "YOUR_CLOUDFLARE_ACCOUNT_ID"
+CLOUDFLARE_API_TOKEN = "YOUR_CLOUDFLARE_API_TOKEN"
+
+# 파일 업로더 생성
 uploaded_file = st.file_uploader("", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
@@ -66,34 +72,38 @@ if uploaded_file:
     with col2:
         st.markdown("### ✨ 포토룸 결과물")
         
-        # 내부 AI 연산 시작
-        with st.spinner("AI 엔진이 캐릭터 실루엣을 분석하는 중... (첫 실행 시 1~2분 소요될 수 있습니다)"):
-            try:
-                # 💡 rembg 코어를 켜고 2D 일러스트/캐릭터 누끼 전용 고화질 세션을 생성합니다.
-                from rembg import remove, new_session
-                
-                # 'isnet-general-use' 세션은 사물의 전체적인 레이아웃(실루엣)을 최우선으로 인식합니다.
-                # 따라서 얼굴 안의 흰색은 지우지 않고 바깥 테두리 밖의 흰색만 칼같이 도려냅니다.
-                session = new_session("isnet-general-use")
-                output_image = remove(input_image, session=session)
-                
-                # 이미지 화면 출력
-                st.image(output_image, use_container_width=True)
-                
-                # 다운로드 가능한 파일 바이트 변환
-                buf = io.BytesIO()
-                output_image.save(buf, format="PNG")
-                byte_im = buf.getvalue()
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                st.download_button(
-                    label="📥 배경 없는 고화질 PNG 다운로드",
-                    data=byte_im,
-                    file_name=f"photoroom_{uploaded_file.name.split('.')[0]}.png",
-                    mime="image/png",
-                    use_container_width=True
-                )
-            except Exception as e:
-                # 혹시 모를 에러 발생 시 상세 메시지 출력
-                st.error(f"처리 중 예기치 못한 에러가 발생했습니다: {str(e)}")
-                st.info("Streamlit Cloud 서버가 AI 구동에 필요한 내부 가상화 모듈을 다시 잡는 중일 수 있습니다. 잠시만 기다린 후 새로고침해 주세요.")
+        # API 전송을 위한 바이너리(Bytes) 변환
+        img_byte_arr = io.BytesIO()
+        input_image.save(img_byte_arr, format='PNG')
+        img_byte_data = img_byte_arr.getvalue()
+        
+        # API 설정 확인 안내 메시지
+        if CLOUDFLARE_API_TOKEN == "YOUR_CLOUDFLARE_API_TOKEN":
+            st.warning("⚠️ 코드 내부의 `CLOUDFLARE_ACCOUNT_ID`와 `CLOUDFLARE_API_TOKEN` 값을 입력해야 AI 기능이 활성화됩니다.")
+        else:
+            # 대기업 서버의 고성능 연산을 활용하므로 로딩 렉이 완전히 사라집니다!
+            with st.spinner("AI가 배경을 분석하여 실시간 제거하는 중... ⚡"):
+                try:
+                    # 포토룸과 동일한 RMBG-1.4 고정밀 세그멘테이션 모델 호출
+                    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/briaai/rmbg-1.4"
+                    headers = {"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"}
+                    
+                    response = requests.post(url, headers=headers, data=img_byte_data)
+                    
+                    if response.status_code == 200:
+                        output_image = Image.open(io.BytesIO(response.content))
+                        st.image(output_image, use_container_width=True)
+                        
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        st.download_button(
+                            label="📥 배경 없는 고화질 PNG 다운로드",
+                            data=response.content,
+                            file_name=f"photoroom_fast_{uploaded_file.name.split('.')[0]}.png",
+                            mime="image/png",
+                            use_container_width=True
+                        )
+                    else:
+                        st.error(f"AI 서버 응답 실패 (에러 코드: {response.status_code})")
+                        st.info("Cloudflare API 토큰 및 계정 ID가 정확하게 입력되었는지 다시 확인해 주세요.")
+                except Exception as e:
+                    st.error(f"처리 중 오류가 발생했습니다: {str(e)}")
