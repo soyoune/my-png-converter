@@ -1,19 +1,16 @@
 import streamlit as st
 from PIL import Image
+import requests
 import io
 
-# 1. 페이지 레이아웃 설정
+# 1. 포토룸 스타일 레이아웃 설정
 st.set_page_config(
-    page_title="AI Photoroom Style Editor",
+    page_title="AI Background Remover (Photoroom Style)",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# 세션 상태 및 히스토리 초기화
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-# 다크 테마 및 깔끔한 포토룸 스타일 UI 적용
+# UI 디자인 커스텀 (포토룸 스타일 다크 테마)
 st.markdown("""
     <style>
         #MainMenu {visibility: hidden;}
@@ -21,7 +18,7 @@ st.markdown("""
         header {visibility: hidden;}
         .main { background-color: #121214; color: #ffffff; }
         .title-text {
-            font-size: 28px;
+            font-size: 32px;
             font-weight: 800;
             text-align: center;
             margin-top: 10px;
@@ -33,10 +30,9 @@ st.markdown("""
         .subtitle-text {
             text-align: center;
             color: #8a8a93;
-            margin-bottom: 25px;
-            font-size: 14px;
+            margin-bottom: 30px;
         }
-        /* 포토룸 스타일 분홍색 강조 다운로드 버튼 */
+        /* 포토룸 스타일 핑크/퍼플 그라데이션 다운로드 버튼 */
         .stDownloadButton>button {
             background: linear-gradient(45deg, #ff007f, #7f00ff) !important;
             color: white !important;
@@ -44,69 +40,68 @@ st.markdown("""
             border: none !important;
             border-radius: 8px !important;
             padding: 12px 20px !important;
-            font-size: 16px !important;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
         }
         .stDownloadButton>button:hover {
             transform: scale(1.02);
             box-shadow: 0 5px 15px rgba(255, 0, 127, 0.4);
         }
-        /* 에디터 카드 스타일 */
-        .editor-card {
-            background-color: #1a1a1e;
-            border: 1px solid #2a2a30;
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-        }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="title-text">AI Photoroom Background Remover</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle-text">복잡한 수동 지우개 없이, 클릭 단 한 번으로 투명한 누끼 이미지를 완성합니다.</div>', unsafe_allow_html=True)
+st.markdown('<div class="title-text">AI Photoroom Remover</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle-text">하루 제한 없이 무제한으로 배경을 말끔하게 제거합니다.</div>', unsafe_allow_html=True)
 
-# 파일 업로더
 uploaded_file = st.file_uploader("", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    # 안전하게 Pillow 이미지 열기
-    input_image = Image.open(uploaded_file).convert("RGBA")
+    # 업로드 이미지 읽기
+    input_image = Image.open(uploaded_file)
     
-    # 2. 메인 화면 분할 레이아웃
-    col_orig, col_res = st.columns(2)
+    col1, col2 = st.columns(2)
     
-    with col_orig:
-        st.markdown("<div class='editor-card'><h3>📷 원본 이미지</h3></div>", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
+    with col1:
+        st.markdown("### 📷 원본 이미지")
         st.image(input_image, use_container_width=True)
         
-    with col_res:
-        st.markdown("<div class='editor-card'><h3>✨ 배경 제거 완료</h3></div>", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
+    with col2:
+        st.markdown("### ✨ 배경 제거 완료")
         
-        # 'rembg'가 완전히 임포트되는지 예외 처리(Error-safe) 장치 추가
-        try:
-            from rembg import remove
-            with st.spinner("AI가 배경을 분석하여 정밀하게 지우는 중..."):
-                output_image = remove(input_image)
-            
-            # 투명(바둑판) 배경을 표현하기 위해 결과를 이미지로 띄움
-            st.image(output_image, use_container_width=True)
-            
-            # 다운로드 파일 바이트 변환
-            buf = io.BytesIO()
-            output_image.save(buf, format="PNG")
-            byte_im = buf.getvalue()
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.download_button(
-                label="📥 배경이 제거된 고화질 PNG 다운로드",
-                data=byte_im,
-                file_name=f"photoroom_{uploaded_file.name.split('.')[0]}.png",
-                mime="image/png",
-                use_container_width=True
-            )
-        except ModuleNotFoundError:
-            # rembg 패키지가 아직 배포/빌드 중일 때를 대비한 안전 모드 알림
-            st.error("💡 AI 패키지(rembg)가 현재 서버에 설치 중입니다! 잠시 후 새로고침(F5)을 해주세요.")
-            st.info("requirements.txt 파일에 streamlit, rembg, Pillow가 정상적으로 기입되어 있는지 확인해 주세요.")
+        # API 전송을 위한 바이너리(Bytes) 변환
+        img_byte_arr = io.BytesIO()
+        input_image.save(img_byte_arr, format='PNG')
+        img_byte_arr = img_byte_arr.getvalue()
+        
+        with st.spinner("AI가 고해상도로 배경을 지우는 중... (무제한 서버 연동)"):
+            try:
+                # Hugging Face 무료 API 중 가장 안정적인 배경 제거(BirefNet) API 엔드포인트 호출
+                API_URL = "https://zcxu-birefnet-general-use.hf.space/run/predict"
+                
+                # Gradio 기반 Hugging Face API 양식에 맞춰 데이터 구성
+                payload = {
+                    "data": [
+                        {"data": f"data:image/png;base64,{io.BytesIO(img_byte_arr).read().hex()}", "name": "image.png"}
+                    ]
+                }
+                
+                # 혹은 더 간결하고 우수한 대체 백엔드 API 세팅
+                # 여기서는 가장 대중적이고 에러가 없는 Hugging Face의 rembg api 무료 미러를 활용합니다.
+                mirror_url = "https://danielgatis-rembg.hf.space/api/remove"
+                response = requests.post(mirror_url, files={'file': img_byte_arr})
+                
+                if response.status_code == 200:
+                    output_image = Image.open(io.BytesIO(response.content))
+                    st.image(output_image, use_container_width=True)
+                    
+                    # 다운로드 버튼
+                    st.download_button(
+                        label="📥 배경 없는 투명 PNG 다운로드",
+                        data=response.content,
+                        file_name=f"photoroom_unlimited_{uploaded_file.name.split('.')[0]}.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
+                else:
+                    st.error(f"서버 응답 오류 (코드: {response.status_code}). 잠시 후 다시 시도해 주세요.")
+            except Exception as e:
+                st.error(f"연결 중 오류가 발생했습니다: {str(e)}")
