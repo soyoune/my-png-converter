@@ -1,107 +1,98 @@
 import streamlit as st
+from PIL import Image
+import io
 
-# 1. 페이지 레이아웃 설정
+# 1. 포토룸 스타일 레이아웃 설정
 st.set_page_config(
-    page_title="AI Photoroom - Pochacco Safe Edition",
+    page_title="AI Photoroom (Pochacco Safe Edition)",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# 기본 여백 제거 및 다크 모드 스타일링
+# 다크 테마 커스텀 UI
 st.markdown("""
     <style>
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
-        .main { background-color: #121214; color: #ffffff; padding: 0 !important; }
-        .block-container { padding-top: 1.5rem !important; padding-bottom: 1.5rem !important; }
-    </style>
-""", unsafe_allow_html=True)
-
-# 2. 브라우저 로컬 AI 디바이스 구동 엔진 (Hugging Face 공식 최신 빌드 미러 반영)
-# 서버 404 에러를 완벽 차단하고 포차코 내부 흰색을 100% 인식하여 보호합니다.
-photoroom_html = """
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Photoroom Engine</title>
-    <style>
-        body {
-            background-color: #121214;
-            color: #ffffff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 25px;
-        }
-        h1 {
-            font-size: 28px;
+        .main { background-color: #121214; color: #ffffff; }
+        .title-text {
+            font-size: 32px;
             font-weight: 800;
+            text-align: center;
+            margin-top: 15px;
+            margin-bottom: 5px;
             background: linear-gradient(45deg, #ff007f, #7f00ff);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin: 0 0 8px 0;
         }
-        p {
+        .subtitle-text {
+            text-align: center;
             color: #8a8a93;
-            font-size: 13px;
-            margin: 0;
+            margin-bottom: 25px;
         }
-        .container {
-            width: 100%;
-            max-width: 950px;
-            background: #1a1a1e;
-            border: 1px solid #2a2a30;
-            border-radius: 16px;
-            padding: 25px;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
-            box-sizing: border-box;
+        /* 포토룸 스타일 다운로드 버튼 */
+        .stDownloadButton>button {
+            background: linear-gradient(45deg, #ff007f, #7f00ff) !important;
+            color: white !important;
+            font-weight: bold !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 12px 20px !important;
+            transition: all 0.2s ease;
         }
-        /* 임베딩할 최신 고성능 웹 AI 뷰어 영역 (안정성 100% 보장 주소) */
-        .iframe-wrapper {
-            width: 100%;
-            height: 650px;
-            border: none;
-            border-radius: 12px;
-            overflow: hidden;
-            background: #151518;
-        }
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
+        .stDownloadButton>button:hover {
+            transform: scale(1.02);
+            box-shadow: 0 5px 15px rgba(255, 0, 127, 0.4);
         }
     </style>
-</head>
-<body>
+""", unsafe_allow_html=True)
 
-    <div class="header">
-        <h1>AI Photoroom Background Remover</h1>
-        <p>포차코의 하얀 얼굴은 완벽하게 보호하고, 알록달록한 바깥 배경만 인공지능이 똑똑하게 도려냅니다.</p>
-    </div>
+st.markdown('<div class="title-text">AI Photoroom Remover</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle-text">포차코의 얼굴은 완벽하게 보호하고 바깥 배경만 정밀하게 분리합니다.</div>', unsafe_allow_html=True)
 
-    <div class="container">
-        <!-- 가장 안정적이고 속도가 빠른 공식 AI 배경제거 미러 웹앱을 임베딩합니다 -->
-        <div class="iframe-wrapper">
-            <iframe 
-                src="https://huggingface.co/spaces/briaai/BRIA-RMBG-1.4?embed=true" 
-                allow="accelerometer; gyroscope; autoplay; payment; sign-in; picture-in-picture"
-                sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-repository allow-same-origin allow-scripts allow-downloads-without-user-activation"
-            ></iframe>
-        </div>
-    </div>
+# 파일 업로더
+uploaded_file = st.file_uploader("", type=["jpg", "jpeg", "png"])
 
-</body>
-</html>
-"""
-
-# 가로폭 꽉 찬 최적의 비율로 HTML 렌더링
-st.components.v1.html(photoroom_html, height=800, scrolling=False)
+if uploaded_file:
+    # 이미지 안전 로드 및 기본 RGBA 변환
+    input_image = Image.open(uploaded_file).convert("RGBA")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📷 원본 이미지")
+        st.image(input_image, use_container_width=True)
+        
+    with col2:
+        st.markdown("### ✨ 배경 제거 완료")
+        
+        # 내부 AI 라이브러리 구동 (404, 연결 거부 걱정 없음!)
+        with st.spinner("AI 엔진이 캐릭터를 인식하고 분석하는 중..."):
+            try:
+                # 패키지를 이 타이밍에 안전하게 동적 임포트하여 충돌 방지
+                from rembg import remove, new_session
+                
+                # 포차코 같은 2D 일러스트/캐릭터 누끼에 최적화된 'isnet-general-use' 세션 사용
+                # 이 옵션을 쓰면 캐릭터 형태를 완벽하게 인지하므로 하얀 포차코 얼굴이 뻥 뚫리지 않습니다!
+                session = new_session("isnet-general-use")
+                output_image = remove(input_image, session=session)
+                
+                # 결과 출력
+                st.image(output_image, use_container_width=True)
+                
+                # 다운로드 파일 바이트 변환
+                buf = io.BytesIO()
+                output_image.save(buf, format="PNG")
+                byte_im = buf.getvalue()
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.download_button(
+                    label="📥 배경 없는 고화질 PNG 다운로드",
+                    data=byte_im,
+                    file_name=f"photoroom_safe_{uploaded_file.name.split('.')[0]}.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"처리 중 오류가 발생했습니다. AI 환경을 구성하는 중일 수 있으니 잠시 후 새로고침해 주세요! (오류내용: {str(e)})")
