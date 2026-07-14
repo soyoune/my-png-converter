@@ -18,8 +18,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 2. 브라우저에서 직접 이미지를 분석하여 0.1초 만에 배경을 투명하게 날려버리는 완전 내장형 웹 앱 소스
-# 외부 서버 404 에러 차단 및 패키지 설치 없는 완전 독립 시스템
+# 2. 외곽 경계선 추출 기반 (Boundary-focused Magic Wand) 엔진 탑재 HTML
 photoroom_html = """
 <!DOCTYPE html>
 <html lang="ko">
@@ -105,7 +104,7 @@ photoroom_html = """
         .img-wrapper {
             position: relative;
             width: 100%;
-            height: 350px;
+            height: 450px;
             border-radius: 8px;
             overflow: hidden;
             background-color: #121214;
@@ -113,7 +112,6 @@ photoroom_html = """
             align-items: center;
             justify-content: center;
         }
-        /* 지워진 배경 투명 바둑판 처리 */
         .transparent-bg {
             background-image: linear-gradient(45deg, #2a2a30 25%, transparent 25%), linear-gradient(-45deg, #2a2a30 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #2a2a30 75%), linear-gradient(-45deg, transparent 75%, #2a2a30 75%);
             background-size: 20px 20px;
@@ -158,20 +156,18 @@ photoroom_html = """
 
     <div class="header">
         <h1>AI Photoroom Background Remover</h1>
-        <p>서버 통신 없이 당신의 기기(브라우저)에서 1초 만에 깔끔한 투명 누끼를 제거합니다.</p>
+        <p>캐릭터 내부는 안전하게 보호하고, 외곽 경계선 바깥쪽 배경 위주로 누끼를 제거합니다.</p>
     </div>
 
     <div class="container">
-        <!-- 파일 업로더 -->
         <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
             <p>📥 여기에 이미지를 끌어다 놓거나 클릭하여 업로드하세요</p>
             <p style="font-size: 12px; color: #71717a; margin-top: 8px;">Supports PNG, JPG, JPEG</p>
             <input type="file" id="fileInput" accept="image/*" style="display: none">
         </div>
 
-        <div class="loading" id="loading">⚡ AI가 외곽선을 정밀하게 추출하는 중... (100% 완전 무료)</div>
+        <div class="loading" id="loading">⚡ 캐릭터 외곽선을 분석하여 배경을 분리하는 중...</div>
 
-        <!-- 이미지 좌우 비교 뷰어 -->
         <div class="preview-area" id="previewArea">
             <div class="preview-box">
                 <h3>📷 원본 이미지</h3>
@@ -190,7 +186,6 @@ photoroom_html = """
         <a id="downloadBtn" class="btn-download" style="display: none;">📥 배경 없는 고화질 PNG 다운로드</a>
     </div>
 
-    <!-- 💡 브라우저 내장 캔버스를 이용한 색상 검출 기반 고속 매트 마스크 연산엔진 (404 완벽 방지) -->
     <script>
         const fileInput = document.getElementById('fileInput');
         const originalImg = document.getElementById('originalImg');
@@ -211,7 +206,6 @@ photoroom_html = """
             reader.onload = function(event) {
                 originalImg.src = event.target.result;
                 
-                // 브라우저 캔버스 지우개 엔진 구동
                 const img = new Image();
                 img.src = event.target.result;
                 img.onload = function() {
@@ -223,38 +217,75 @@ photoroom_html = """
 
                     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     const data = imgData.data;
+                    const width = canvas.width;
+                    const height = canvas.height;
 
-                    // 코너 기준 색상 감지 알고리즘 (포토룸 스마트 크로마 매팅 기법)
-                    const rTarget = data[0];
-                    const gTarget = data[1];
-                    const bTarget = data[2];
-                    const tolerance = 45; // 배경 유사도 오차 범위 허용값
+                    // 테두리(가장자리 4면)에서 시작하여 안쪽으로 타고 들어가는 외곽 채우기(Flood Fill) 알고리즘 적용
+                    // 이 방식을 쓰면 캐릭터가 경계선 역할을 해줘서 캐릭터 내부의 하얀색은 침범당하지 않습니다.
+                    const visited = new Uint8Array(width * height);
+                    const queue = [];
 
-                    for (let i = 0; i < data.length; i += 4) {
-                        const r = data[i];
-                        const g = data[i + 1];
-                        const b = data[i + 2];
+                    // 상하좌우 외곽 테두리 픽셀들을 시작점으로 큐에 주입
+                    const rTarget = data[0], gTarget = data[1], bTarget = data[2];
+                    const tolerance = 55; // 포차코 배경 가공에 최적화된 경계 임계값
 
-                        const diff = Math.sqrt(
-                            Math.pow(r - rTarget, 2) +
-                            Math.pow(g - gTarget, 2) +
-                            Math.pow(b - bTarget, 2)
-                        );
+                    function checkAndEnqueue(x, y) {
+                        const idx = y * width + x;
+                        if (visited[idx]) return;
+                        
+                        const pIdx = idx * 4;
+                        const r = data[pIdx];
+                        const g = data[pIdx + 1];
+                        const b = data[pIdx + 2];
 
+                        // 타겟 배경색과의 거리 계산
+                        const diff = Math.sqrt(Math.pow(r - rTarget, 2) + Math.pow(g - gTarget, 2) + Math.pow(b - bTarget, 2));
+                        
                         if (diff < tolerance) {
-                            data[i + 3] = 0; // 투명화 처리
+                            visited[idx] = 1;
+                            queue.push(idx);
+                        }
+                    }
+
+                    // 상하 테두리 스캔
+                    for (let x = 0; x < width; x++) {
+                        checkAndEnqueue(x, 0);
+                        checkAndEnqueue(x, height - 1);
+                    }
+                    // 좌우 테두리 스캔
+                    for (let y = 0; y < height; y++) {
+                        checkAndEnqueue(0, y);
+                        checkAndEnqueue(width - 1, y);
+                    }
+
+                    // BFS 탐색으로 외부 배경 영역만 추적하여 지우기
+                    let head = 0;
+                    while (head < queue.length) {
+                        const idx = queue[head++];
+                        const x = idx % width;
+                        const y = Math.floor(idx / width);
+
+                        // 4방향 탐색
+                        if (x > 0) checkAndEnqueue(x - 1, y);
+                        if (x < width - 1) checkAndEnqueue(x + 1, y);
+                        if (y > 0) checkAndEnqueue(x, y - 1);
+                        if (y < height - 1) checkAndEnqueue(x, y + 1);
+                    }
+
+                    // 탐색 완료된 외부 배경 픽셀만 알파채널을 0(투명)으로 수정
+                    for (let i = 0; i < visited.length; i++) {
+                        if (visited[i] === 1) {
+                            data[i * 4 + 3] = 0;
                         }
                     }
 
                     ctx.putImageData(imgData, 0, 0);
                     
-                    // 결과 렌더링
                     const outputUrl = canvas.toDataURL("image/png");
                     resultImg.src = outputUrl;
 
-                    // 다운로드 링크 설정
                     downloadBtn.href = outputUrl;
-                    downloadBtn.download = "photoroom_" + file.name.split('.')[0] + ".png";
+                    downloadBtn.download = "photoroom_magic_" + file.name.split('.')[0] + ".png";
 
                     loading.style.display = 'none';
                     previewArea.style.display = 'grid';
@@ -268,5 +299,4 @@ photoroom_html = """
 </html>
 """
 
-# HTML 컴포넌트를 전체 폭으로 꽉 채워서 뿌려줍니다.
-st.components.v1.html(photoroom_html, height=850, scrolling=False)
+st.components.v1.html(photoroom_html, height=900, scrolling=False)
